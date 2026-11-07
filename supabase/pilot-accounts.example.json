@@ -1,0 +1,11 @@
+{
+  "accounts": [
+    { "label": "A_student", "institution": "A", "role": "student", "email": "student@sygnetta.example.com", "password": "" },
+    { "label": "A_student2", "institution": "A", "role": "student", "email": "", "password": "" },
+    { "label": "A_faculty", "institution": "A", "role": "faculty", "email": "faculty@sygnetta.example.com", "password": "" },
+    { "label": "A_admin", "institution": "A", "role": "admin", "email": "admin@sygnetta.example.com", "password": "" },
+    { "label": "B_student", "institution": "B", "role": "student", "email": "", "password": "" },
+    { "label": "B_faculty", "institution": "B", "role": "faculty", "email": "", "password": "" },
+    { "label": "B_admin", "institution": "B", "role": "admin", "email": "", "password": "" }
+  ]
+}

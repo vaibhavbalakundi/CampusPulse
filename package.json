@@ -4,12 +4,35 @@
   "private": true,
   "packageManager": "pnpm@11.25.0",
   "scripts": {
-    "dev": "next dev --hostname 127.0.0.1",
+    "dev": "next dev --hostname 0.0.0.0",
     "preview": "node scripts/preview.mjs",
-    "build": "next build",
+    "build": "next build && node scripts/build-phone-app.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "test:pilot-ui": "node scripts/check-pilot-readiness.cjs",
+    "test:live-access": "node scripts/check-live-access.mjs",
+    "test:voice-live": "node scripts/check-voice-live.cjs",
+    "test:timing-live": "node scripts/check-natural-time-live.cjs",
+    "test:expiry-live": "node scripts/check-retention-live.cjs",
+    "test:recording": "node scripts/check-recording-lifecycle.cjs",
+    "test:voice-gestures": "node scripts/check-voice-gestures.cjs",
+    "test:a11y": "node scripts/check-accessibility.cjs",
+    "test:phone-app": "node scripts/check-phone-app.cjs"
   },
-  "dependencies": { "next": "^16.0.0", "react": "^19.0.0", "react-dom": "^19.0.0" },
-  "devDependencies": { "@types/node": "^24.0.0", "@types/react": "^19.0.0", "@types/react-dom": "^19.0.0", "typescript": "^5.9.0" }
+  "dependencies": {
+    "@supabase/supabase-js": "2.118.0",
+    "chrono-node": "2.10.3",
+    "next": "16.4.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/three": "0.170.0",
+    "typescript": "5.9.3"
+  }
 }

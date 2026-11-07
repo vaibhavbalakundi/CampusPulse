@@ -7,3 +7,4 @@ out/
 .openai/*.local.*
 .openai/cache/
 test-results/
+.pilot-test/
