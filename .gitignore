@@ -8,3 +8,6 @@ out/
 .openai/cache/
 test-results/
 .pilot-test/
+
+.vercel
+.env*

@@ -87,35 +87,46 @@ async function englishMinutes(key: string, transcript: string) {
   return { english, actions: actionsFrom(raw) };
 }
 
-const cors = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-const reply = (body: unknown, status = 200) => Response.json(body, { status, headers: cors });
+const APP_ORIGINS = new Set([
+  "https://sygnetta.vercel.app",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+]);
+function corsHeaders(request: Request) {
+  const origin = request.headers.get("Origin") || "";
+  const allow = APP_ORIGINS.has(origin) ? origin : "https://sygnetta.vercel.app";
+  return {
+    "Access-Control-Allow-Origin": allow,
+    "Vary": "Origin",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+  };
+}
+const reply = (request: Request, body: unknown, status = 200) =>
+  Response.json(body, { status, headers: corsHeaders(request) });
 
 Deno.serve(async (request: Request) => {
-  if (request.method === "OPTIONS") return new Response("ok", { headers: cors });
-  if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: cors });
+  if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders(request) });
+  if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: corsHeaders(request) });
   const authorization = request.headers.get("Authorization");
-  if (!authorization?.startsWith("Bearer ")) return reply({ ok: false, message: "Sign in again before transcribing." }, 401);
+  if (!authorization?.startsWith("Bearer ")) return reply(request, { ok: false, message: "Sign in again before transcribing." }, 401);
   const url = Deno.env.get("SUPABASE_URL");
   const anon = Deno.env.get("SUPABASE_ANON_KEY");
   const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!url || !anon || !service) return reply({ ok: false, message: "Transcription is not available right now." }, 500);
+  if (!url || !anon || !service) return reply(request, { ok: false, message: "Transcription is not available right now." }, 500);
   let minuteId = "";
   try {
     minuteId = String((await request.json() as { minute_id?: unknown }).minute_id ?? "");
-  } catch { return reply({ ok: false, message: "Choose a meeting recording to transcribe." }, 400); }
-  if (!/^[0-9a-f-]{36}$/i.test(minuteId)) return reply({ ok: false, message: "Choose a meeting recording to transcribe." }, 400);
+  } catch { return reply(request, { ok: false, message: "Choose a meeting recording to transcribe." }, 400); }
+  if (!/^[0-9a-f-]{36}$/i.test(minuteId)) return reply(request, { ok: false, message: "Choose a meeting recording to transcribe." }, 400);
 
   const userClient = createClient(url, anon, { auth: { persistSession: false, autoRefreshToken: false }, global: { headers: { Authorization: authorization } } });
   const admin = createClient(url, service, { auth: { persistSession: false, autoRefreshToken: false } });
   const user = await userClient.auth.getUser();
-  if (user.error || !user.data.user) return reply({ ok: false, message: "Sign in again before transcribing." }, 401);
+  if (user.error || !user.data.user) return reply(request, { ok: false, message: "Sign in again before transcribing." }, 401);
   const minute = await userClient.from("meeting_minutes").select("id,audio_path,status").eq("id", minuteId).maybeSingle();
   if (minute.error || !minute.data?.audio_path || minute.data.status !== "transcribing") {
-    return reply({ ok: false, message: "This recording is not waiting for a transcript." }, 403);
+    return reply(request, { ok: false, message: "This recording is not waiting for a transcript." }, 403);
   }
 
   const fail = (message: string) => admin.rpc("complete_meeting_transcript", {
@@ -124,7 +135,7 @@ Deno.serve(async (request: Request) => {
   const key = Deno.env.get("SMALLEST_API_KEY");
   if (!key) {
     await fail("Speech transcription is not connected yet. Type the minutes below.");
-    return reply({ ok: false, message: "Speech transcription is not connected yet. Type the minutes below." });
+    return reply(request, { ok: false, message: "Speech transcription is not connected yet. Type the minutes below." });
   }
   try {
     const downloaded = await admin.storage.from("voice-notes").download(minute.data.audio_path);
@@ -135,9 +146,9 @@ Deno.serve(async (request: Request) => {
       p_minute: minuteId, p_user: user.data.user.id, p_transcript: minutes.english.slice(0, 12000), p_actions: minutes.actions, p_failure: null,
     });
     if (saved.error) throw new Error("save");
-    return reply({ ok: true });
+    return reply(request, { ok: true });
   } catch {
     await fail("The recording could not be transcribed. Type the minutes below.");
-    return reply({ ok: false, message: "The recording could not be transcribed. Type the minutes below." });
+    return reply(request, { ok: false, message: "The recording could not be transcribed. Type the minutes below." });
   }
 });

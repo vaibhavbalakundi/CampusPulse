@@ -151,7 +151,7 @@ export function MeetingMinutes({ requestId, userId, role }: { requestId: string;
       {row.actions.length > 0 ? <ul className={styles.actionList}>{row.actions.map(action => <li key={action.id}><label className={styles.todoCheck}><input type="checkbox" checked={action.done} onChange={() => void toggle(action)} /><span>{action.text}{action.due_on ? ` · due ${action.due_on}` : ""}</span></label></li>)}</ul> : <p className={styles.muted}>No action points yet.</p>}
       <div className={styles.minutesBar}>
         <p className={styles.muted}>
-          {published ? `Published ${date(row.student_confirmed_at!)}` : isStudent ? "Draft — publish when ready" : "Draft — no review required"}
+          {published ? `Published ${date(row.student_confirmed_at!)}` : isStudent ? "Draft - publish when ready" : "Draft - no review required"}
           {flagged ? " · flagged" : ""}
         </p>
         <div className={styles.minutesActions}>

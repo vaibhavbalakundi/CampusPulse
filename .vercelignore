@@ -1,0 +1,15 @@
+node_modules
+.next
+out
+.pilot-test
+test-results
+.openai
+*.tsbuildinfo
+.env*
+!.env.example
+.git
+.DS_Store
+coverage
+playwright-report
+tmp
+*.log

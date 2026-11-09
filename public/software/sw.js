@@ -1,6 +1,6 @@
 /* Only these public, account-independent resources may enter Cache Storage. */
 const CACHE_PREFIX = "campuspulse-public-";
-const CACHE_NAME = CACHE_PREFIX + "20261106-1";
+const CACHE_NAME = CACHE_PREFIX + "20261109-security-hardening";
 const PUBLIC_PATHS = ["/software/offline.html", "/software/offline.css", "/software/icons/icon-192.png", "/software/icons/icon-512.png", "/software/icons/maskable-512.png"];
 const SAFE_NAVIGATIONS = new Set(["/software/", "/software/install/", "/software/help/"]);
 
@@ -15,6 +15,7 @@ self.addEventListener("install", event => {
     }
   })());
 });
+
 self.addEventListener("activate", event => {
   event.waitUntil((async () => {
     const names = await caches.keys();
@@ -22,19 +23,42 @@ self.addEventListener("activate", event => {
     await self.clients.claim();
   })());
 });
+
 self.addEventListener("message", event => {
   if (event.source && new URL(event.source.url).origin === self.location.origin && event.data?.type === "ACTIVATE_UPDATE") self.skipWaiting();
 });
+
 self.addEventListener("notificationclick", event => {
+  const data = event.notification.data || {};
+  const action = event.action;
   event.notification.close();
-  const target = new URL("/software/", self.location.origin).href;
+
+  // Status actions never carry session secrets. Apply through the signed-in app window.
+  if (data.kind === "status" && ["available", "busy", "away"].includes(action)) {
+    event.waitUntil((async () => {
+      const target = new URL("/software/", self.location.origin);
+      target.searchParams.set("statusAction", action);
+      if (data.nudgeId) target.searchParams.set("nudge", data.nudgeId);
+      const open = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const existing = open.find(client => client.url.startsWith(new URL("/software/", self.location.origin).href));
+      if (existing) {
+        existing.postMessage({ type: "APPLY_STATUS_ACTION", status: action, nudgeId: data.nudgeId || null });
+        return existing.focus();
+      }
+      return self.clients.openWindow(target.href);
+    })());
+    return;
+  }
+
+  const target = new URL(typeof data.url === "string" ? data.url : "/software/", self.location.origin).href;
   event.waitUntil((async () => {
     const open = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-    const existing = open.find(client => client.url.startsWith(target));
+    const existing = open.find(client => client.url.startsWith(new URL("/software/", self.location.origin).href));
     if (existing) return existing.focus();
     return self.clients.openWindow(target);
   })());
 });
+
 self.addEventListener("fetch", event => {
   const request = event.request; const url = new URL(request.url);
   if (request.method !== "GET" || url.origin !== self.location.origin || url.search || request.headers.has("Authorization")) return;

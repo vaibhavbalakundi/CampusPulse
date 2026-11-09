@@ -1,4 +1,4 @@
--- Student-owned minutes: student publishes; faculty may flag — no dual review required.
+-- Student-owned minutes: student publishes; faculty may flag - no dual review required.
 
 alter table public.meeting_minutes
   add column if not exists faculty_flagged_at timestamptz,
@@ -96,7 +96,7 @@ begin
   insert into public.notifications(recipient_id, request_id, kind, message)
   values (r.student_id, r.id, 'meeting', 'Your minutes are ready. Publish when they look right.');
   insert into public.notifications(recipient_id, request_id, kind, message)
-  values (r.faculty_id, r.id, 'meeting', 'Minutes draft ready. Action points are on My day — no review required.');
+  values (r.faculty_id, r.id, 'meeting', 'Minutes draft ready. Action points are on My day - no review required.');
 end $$;
 
 create or replace function public.submit_meeting_minutes(p_request uuid, p_voice_path text) returns uuid

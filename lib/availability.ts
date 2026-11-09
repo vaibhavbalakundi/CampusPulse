@@ -50,13 +50,40 @@ export function insideOfficeHours(hours: OfficeHourWindow[], now: number) {
   });
 }
 
-export function campusPresence(manual: ManualStatus | undefined, scheduled: ScheduledStatus | undefined, hours: OfficeHourWindow[], now: number): Presence {
+export function campusPresence(
+  manual: ManualStatus | undefined,
+  scheduled: ScheduledStatus | undefined,
+  hours: OfficeHourWindow[],
+  now: number,
+  autoBusyOutsideHours?: boolean,
+): Presence {
   const current = effectiveStatus(manual, scheduled, now);
   if (current?.current) return { status: current.status, source: current.scheduled ? "scheduled" : "override", expiresAt: current.expiresAt };
   if (!hours.length) return { status: null, source: "none", expiresAt: null };
-  return insideOfficeHours(hours, now)
-    ? { status: "available", source: "hours", expiresAt: null }
-    : { status: "away", source: "hours", expiresAt: null };
+  if (insideOfficeHours(hours, now)) return { status: "available", source: "hours", expiresAt: null };
+  if (autoBusyOutsideHours) return { status: "busy", source: "hours", expiresAt: null };
+  return { status: "away", source: "hours", expiresAt: null };
+}
+
+export function suggestFacultyForTopic<T extends { id: string; name: string; department: string; expertise?: string; portfolio?: string }>(
+  people: T[],
+  topic: string,
+  limit = 3,
+) {
+  const tokens = topic.toLowerCase().split(/[^a-z]+/i).filter(token => token.length >= 3);
+  if (!tokens.length) return [] as Array<T & { score: number }>;
+  const scored = people.map(person => {
+    const fields = [
+      person.expertise || "",
+      person.portfolio || "",
+      person.department,
+      person.name,
+    ].join(" ").toLowerCase();
+    let score = 0;
+    for (const token of tokens) if (fields.includes(token)) score += 1;
+    return { ...person, score };
+  });
+  return scored.filter(person => person.score > 0).sort((left, right) => right.score - left.score).slice(0, limit);
 }
 
 export function nextOfficeSlots(hours: OfficeHourWindow[], now: number, count = 3) {

@@ -2,15 +2,18 @@
 do $$
 begin
   if public.restrict_bmsit_signup('{"user":{"email":"test@bmsit.in"}}'::jsonb) <> '{}'::jsonb then
-    raise exception 'Valid domain was not accepted';
+    raise exception 'expected campus domain email to pass';
+  end if;
+  if public.restrict_bmsit_signup('{"user":{"email":"teacher@gmail.com"}}'::jsonb) <> '{}'::jsonb then
+    raise exception 'expected any valid email to pass';
   end if;
   if public.restrict_bmsit_signup('{"user":{"email":"test@BMSIT.IN"}}'::jsonb) <> '{}'::jsonb then
-    raise exception 'Domain comparison must be case insensitive';
+    raise exception 'expected case-insensitive email to pass';
   end if;
-  if not jsonb_exists(public.restrict_bmsit_signup('{"user":{"email":"test@bmsit.in.example.com"}}'::jsonb), 'error')
-    or not jsonb_exists(public.restrict_bmsit_signup('{"user":{"email":"test@example.com"}}'::jsonb), 'error')
+  if not jsonb_exists(public.restrict_bmsit_signup('{"user":{"email":"not-an-email"}}'::jsonb), 'error')
+    or not jsonb_exists(public.restrict_bmsit_signup('{"user":{"email":"@example.com"}}'::jsonb), 'error')
     or not jsonb_exists(public.restrict_bmsit_signup('{"user":{}}'::jsonb), 'error') then
-    raise exception 'An invalid or missing domain was accepted';
+    raise exception 'expected malformed emails to fail';
   end if;
 end $$;
-select 'Domain hook checks passed; no accounts were created' as result;
+select 'Email hook checks passed; no accounts were created' as result;

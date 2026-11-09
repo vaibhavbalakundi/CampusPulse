@@ -37,7 +37,7 @@ export default function HardwareDemo() {
   const [query, setQuery] = useState("");
   const [department, setDepartment] = useState("All departments");
   const [filter, setFilter] = useState("All faculty");
-  const [sort, setSort] = useState("Name A–Z");
+  const [sort, setSort] = useState("Name A-Z");
   const [selectedId, setSelectedId] = useState("demo-01");
   const [paused, setPaused] = useState<string[]>(["demo-07"]);
   const [browserOffline, setBrowserOffline] = useState(false);
@@ -144,7 +144,7 @@ export default function HardwareDemo() {
   }
   function reset() {
     const time = Date.now(); setNow(time); setFaculty(createDemo(time)); setPaused(["demo-07"]);
-    setSelectedId("demo-01"); setQuery(""); setDepartment("All departments"); setFilter("All faculty"); setSort("Name A–Z");
+    setSelectedId("demo-01"); setQuery(""); setDepartment("All departments"); setFilter("All faculty"); setSort("Name A-Z");
     setMessage("Demo reset to the starting examples.");
   }
 
@@ -170,9 +170,9 @@ export default function HardwareDemo() {
         </section>
 
         <section className="summary-row" aria-label="Directory overview">
-          <div className="summary-item"><span className="summary-icon purple"><Icon name="grid"/></span><div><strong>{faculty.length || "—"}</strong><span>Faculty in directory</span></div></div>
-          <div className="summary-item"><span className="summary-icon green"><Icon name="check"/></span><div><strong>{now ? available : "—"}<span className="small-unit">faculty</span></strong><span>Available · current declarations</span></div></div>
-          <div className="summary-item"><span className="summary-icon cream"><Icon name="book"/></span><div><strong>{departments.length || "—"}</strong><span>Departments, one place</span></div></div>
+          <div className="summary-item"><span className="summary-icon purple"><Icon name="grid"/></span><div><strong>{faculty.length || "0"}</strong><span>Faculty in directory</span></div></div>
+          <div className="summary-item"><span className="summary-icon green"><Icon name="check"/></span><div><strong>{now ? available : "0"}<span className="small-unit">faculty</span></strong><span>Available · current declarations</span></div></div>
+          <div className="summary-item"><span className="summary-icon cream"><Icon name="book"/></span><div><strong>{departments.length || "0"}</strong><span>Departments, one place</span></div></div>
           <div className="summary-caption"><span className="live-dot"/> Interactive demo<small>Fictional faculty. Simulated devices.</small></div>
         </section>
 
@@ -183,7 +183,7 @@ export default function HardwareDemo() {
             <div className="section-heading"><div><h2 id="directory-title">Faculty directory</h2><p>Your next conversation is a search away.</p></div><span className="count-label">{faculty.length} faculty</span></div>
             <div className="search-row"><div className="search-field"><Icon name="search"/><input ref={search} aria-label="Search faculty" placeholder="Search by name, department or room…" value={query} onChange={event => setQuery(event.target.value)}/>{query && <button className="clear-search" aria-label="Clear search" onClick={() => { setQuery(""); search.current?.focus(); }}><Icon name="close" size={15}/></button>}</div><select aria-label="Filter by department" value={department} onChange={event => setDepartment(event.target.value)}><option>All departments</option>{departments.map(value => <option key={value}>{value}</option>)}</select></div>
             <div className="filter-row"><div className="status-filters" role="group" aria-label="Filter by availability">{["All faculty", "Available", "Busy", "Away", "Needs update"].map(value => <button key={value} className={filter === value ? "selected" : ""} aria-pressed={filter === value} onClick={() => setFilter(value)}>{value !== "All faculty" && <span className={`filter-dot ${value.toLowerCase().replace(" ", "-")}`}/>}<span>{value}</span></button>)}</div></div>
-            <div className="results-toolbar"><span role="status">Showing <strong>{visible.length}</strong> of {faculty.length} faculty</span><label>Sort by <select aria-label="Sort faculty" value={sort} onChange={event => setSort(event.target.value)}><option>Name A–Z</option><option>Recently updated</option></select></label></div>
+            <div className="results-toolbar"><span role="status">Showing <strong>{visible.length}</strong> of {faculty.length} faculty</span><label>Sort by <select aria-label="Sort faculty" value={sort} onChange={event => setSort(event.target.value)}><option>Name A-Z</option><option>Recently updated</option></select></label></div>
             {!now ? <div className="empty-state" role="status">Loading demo faculty…</div> : visible.length === 0 ? <div className="empty-state"><span className="empty-icon"><Icon name="search" size={28}/></span><h3>No faculty found</h3><p>Try another name or adjust your filters.</p><button className="primary-button" onClick={() => { setQuery(""); setDepartment("All departments"); setFilter("All faculty"); }}>Clear all filters</button></div> : <div className="faculty-grid">{visible.map(row => {
               const state = deviceState(row, now);
               return <article className={`faculty-card ${state.current ? "" : "has-warning"}`} key={row.id}>

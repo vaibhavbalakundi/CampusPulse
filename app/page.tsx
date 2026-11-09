@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ViewTransition } from "react";
-import { PullScroll } from "./pull-scroll";
 
 export const metadata: Metadata = {
   title: "CampusPulse by Sygnetta",
@@ -18,7 +17,6 @@ const day = [
 export default function Home() {
   return (
     <ViewTransition enter="campus-arrive" exit="campus-leave" default="none">
-    <PullScroll>
     <main className="public-site">
       <a className="skip-link" href="#services">Skip to services</a>
       <section className="public-hero" aria-labelledby="campus-intro">
@@ -126,7 +124,6 @@ export default function Home() {
         </div>
       </section>
     </main>
-    </PullScroll>
     </ViewTransition>
   );
 }

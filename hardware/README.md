@@ -14,9 +14,9 @@ Use a NodeMCU ESP8266 development board (not an ESP32). The two resistors are LE
 | Busy button terminal 2 | GND |
 | Away button terminal 1 | D5 (GPIO14) |
 | Away button terminal 2 | GND |
-| Available LED anode (long leg) | D6 (GPIO12) through 220–470 Ω resistor |
+| Available LED anode (long leg) | D6 (GPIO12) through 220-470 Ω resistor |
 | Available LED cathode (short leg) | GND |
-| Busy LED anode (long leg) | D7 (GPIO13) through 220–470 Ω resistor |
+| Busy LED anode (long leg) | D7 (GPIO13) through 220-470 Ω resistor |
 | Busy LED cathode (short leg) | GND |
 
 ```text
@@ -24,8 +24,8 @@ NodeMCU D1 ───── [ Available button ] ───── GND
 NodeMCU D2 ───── [ Busy button      ] ───── GND
 NodeMCU D5 ───── [ Away button      ] ───── GND
 
-NodeMCU D6 ──[220–470 Ω]───|>|─── GND   Available LED
-NodeMCU D7 ──[220–470 Ω]───|>|─── GND   Busy LED
+NodeMCU D6 ──[220-470 Ω]───|>|─── GND   Available LED
+NodeMCU D7 ──[220-470 Ω]───|>|─── GND   Busy LED
                              ↑
                          LED anode (+)
 ```

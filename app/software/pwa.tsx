@@ -22,13 +22,17 @@ export function PhoneAppProvider({ children }: { children: ReactNode }) {
     const stateChanged = () => { if (active && installing?.state === "installed" && navigator.serviceWorker.controller) setWaiting(registration?.waiting ?? installing); };
     const foundUpdate = () => { installing?.removeEventListener("statechange", stateChanged); installing = registration?.installing ?? null; installing?.addEventListener("statechange", stateChanged); };
     window.addEventListener("beforeinstallprompt", offer); window.addEventListener("appinstalled", installedApp); window.addEventListener("online", network); window.addEventListener("offline", network); mode.addEventListener("change", updateMode);
+    const checkForUpdate = () => { if (registration && navigator.onLine) void registration.update().catch(() => { /* Optional; banner appears when a worker is waiting. */ }); };
+    const onVisible = () => { if (document.visibilityState === "visible") checkForUpdate(); };
     if ("serviceWorker" in navigator && window.isSecureContext) {
       navigator.serviceWorker.addEventListener("controllerchange", changed);
       void navigator.serviceWorker.register("/software/sw.js", { scope: "/software/", updateViaCache: "none" }).then(value => {
-        if (!active) return; registration = value; if (value.waiting) setWaiting(value.waiting); value.addEventListener("updatefound", foundUpdate); foundUpdate();
+        if (!active) return; registration = value; if (value.waiting) setWaiting(value.waiting); value.addEventListener("updatefound", foundUpdate); foundUpdate(); checkForUpdate();
       }).catch(() => { /* Installation remains optional; normal sign-in still works. */ });
+      document.addEventListener("visibilitychange", onVisible);
+      window.addEventListener("focus", checkForUpdate);
     }
-    return () => { active = false; window.removeEventListener("beforeinstallprompt", offer); window.removeEventListener("appinstalled", installedApp); window.removeEventListener("online", network); window.removeEventListener("offline", network); mode.removeEventListener("change", updateMode); navigator.serviceWorker?.removeEventListener("controllerchange", changed); registration?.removeEventListener("updatefound", foundUpdate); installing?.removeEventListener("statechange", stateChanged); };
+    return () => { active = false; window.removeEventListener("beforeinstallprompt", offer); window.removeEventListener("appinstalled", installedApp); window.removeEventListener("online", network); window.removeEventListener("offline", network); mode.removeEventListener("change", updateMode); document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("focus", checkForUpdate); navigator.serviceWorker?.removeEventListener("controllerchange", changed); registration?.removeEventListener("updatefound", foundUpdate); installing?.removeEventListener("statechange", stateChanged); };
   }, []);
   async function install() { if (!prompt) return; const current = prompt; setPrompt(null); try { await current.prompt(); await current.userChoice; } catch { /* Manual platform instructions remain available. */ } }
   return <InstallContext.Provider value={{ prompt, installed, ios, install }}>{children}

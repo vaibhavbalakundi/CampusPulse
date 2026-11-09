@@ -1,4 +1,4 @@
-# Software MVP setup — development only
+# Software MVP setup - development only
 
 The `/software/` route uses Supabase for authentication and shared data. Until it is configured, the page shows a setup message. The existing `/` hardware demo remains separate. Core workflows and database checks have been exercised with fictional accounts against a development Supabase project. Do not use real college or participant data until access controls, provisioning, privacy requirements, and institutional approval have been checked.
 

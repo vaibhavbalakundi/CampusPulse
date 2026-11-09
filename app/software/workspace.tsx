@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import styles from "./software.module.css";
 
 export function WorkspaceIcon({ name }: { name: string }) {
@@ -44,10 +44,17 @@ export function WorkspaceLoading() {
 }
 
 type Tab = { id: string; title: string; count?: number };
-export function Workspace({ name, role, detail = "", tabs, active, onNavigate, onSignOut, children }: {
-  name: string; role: string; detail?: string; tabs: Tab[]; active: string; onNavigate: (id: string) => void; onSignOut?: () => void; children: ReactNode;
+type ProfileHelpers = { close: () => void };
+export function Workspace({ name, role, detail = "", tabs, active, onNavigate, onSignOut, profile, children }: {
+  name: string; role: string; detail?: string; tabs: Tab[]; active: string; onNavigate: (id: string) => void; onSignOut?: () => void;
+  profile?: (helpers: ProfileHelpers) => ReactNode; children: ReactNode;
 }) {
   const navigation = useRef<HTMLElement>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const dialogId = useId();
+  const titleId = useId();
+  const closeProfile = () => { dialog.current?.close(); };
+  const openProfile = () => { dialog.current?.showModal(); };
   useEffect(() => {
     const nav = navigation.current;
     const current = nav?.querySelector<HTMLButtonElement>("[aria-current='page']");
@@ -61,8 +68,28 @@ export function Workspace({ name, role, detail = "", tabs, active, onNavigate, o
     <a className={styles.skipLink} href="#workspace-content">Skip to content</a>
     <header className={styles.topBar}>
       <WorkspaceBrand/>
-      <div className={styles.identity}><span className={styles.accountAvatar}>{name.charAt(0)}</span><span><strong>{name}</strong><small>{who}</small></span>{onSignOut && <button type="button" onClick={onSignOut}>Sign out</button>}</div>
+      <div className={styles.identity}>
+        <button type="button" className={styles.profileTrigger} data-tour="profile" aria-haspopup="dialog" aria-controls={dialogId} onClick={openProfile}>
+          <span className={styles.accountAvatar}>{name.charAt(0)}</span>
+          <span><strong>{name}</strong><small>{who}</small></span>
+        </button>
+        {onSignOut && <button type="button" className={styles.signOut} onClick={onSignOut}>Sign out</button>}
+      </div>
     </header>
+    <dialog ref={dialog} id={dialogId} className={styles.profileDialog} aria-labelledby={titleId}>
+      <div className={styles.profileDialogBody}>
+        <div className={styles.requestDialogHead}>
+          <button type="button" className={styles.requestBack} onClick={closeProfile}>Close</button>
+          <span className={styles.eyebrow}>YOUR PROFILE</span>
+        </div>
+        <h2 id={titleId}>{name}</h2>
+        <dl className={styles.facultyMeta}>
+          <div><dt>Role</dt><dd style={{ textTransform: "capitalize" }}>{role}</dd></div>
+          {detail ? <div><dt>Department</dt><dd>{detail}</dd></div> : null}
+        </dl>
+        {profile?.({ close: closeProfile })}
+      </div>
+    </dialog>
     <aside className={styles.sidebar}>
       <span className={styles.workspaceLabel}>CAMPUS WORKSPACE</span>
       <nav ref={navigation} className={styles.nav} aria-label="Main navigation">{tabs.map(t => <button key={t.id} type="button" data-tour={t.id} className={active === t.id ? styles.activeNav : ""} aria-current={active === t.id ? "page" : undefined} onClick={() => onNavigate(t.id)}><WorkspaceIcon name={t.id}/><span>{t.title}</span>{!!t.count && <b>{t.count}<span className={styles.visuallyHidden}>{t.id === "updates" ? " unread" : " pending"}</span></b>}</button>)}</nav>

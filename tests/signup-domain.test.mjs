@@ -1,13 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isBmsitEmail } from '../lib/signup-domain.ts';
+import { isValidEmail } from '../lib/signup-domain.ts';
 
-test('allows the exact campus email domain regardless of case', () => {
-  assert.equal(isBmsitEmail('student@bmsit.in'), true);
-  assert.equal(isBmsitEmail(' Faculty@BMSIT.IN '), true);
+test('accepts common email shapes', () => {
+  assert.equal(isValidEmail('student@bmsit.in'), true);
+  assert.equal(isValidEmail(' Faculty@Gmail.com '), true);
+  assert.equal(isValidEmail('a.b+tag@college.edu'), true);
 });
-test('rejects unrelated domains, lookalikes and missing usernames', () => {
-  for (const value of ['student@example.com','student@bmsit.in.example.com','@bmsit.in','x@@bmsit.in','x y@bmsit.in']) {
-    assert.equal(isBmsitEmail(value), false);
+
+test('rejects empty or malformed values', () => {
+  for (const value of ['student@', '@college.edu', 'not-an-email', 'x@@y.com', 'x y@z.com', '']) {
+    assert.equal(isValidEmail(value), false);
   }
 });

@@ -1,14 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseProfileCsv } from '../lib/profile-csv.ts';
-const id='11111111-1111-4111-8111-111111111111';
-const header='auth_user_id,name,department,role\r\n';
+const header = 'email,name,department,role\r\n';
 test('imports quoted commas and escaped quotes', () => {
-  const [row]=parseProfileCsv(header+`${id},"Doe, Jane","Arts ""A""",faculty\r\n`);
-  assert.deepEqual(row,{auth_user_id:id,name:'Doe, Jane',department:'Arts "A"',role:'faculty'});
+  const [row] = parseProfileCsv(header + `"jane@bmsit.in","Doe, Jane","Arts ""A""",faculty\r\n`);
+  assert.deepEqual(row, { email: 'jane@bmsit.in', name: 'Doe, Jane', department: 'Arts "A"', role: 'faculty' });
 });
-test('rejects invalid roles, duplicate IDs and unterminated fields', () => {
-  assert.throws(()=>parseProfileCsv(header+`${id},Jane,CS,admin`));
-  assert.throws(()=>parseProfileCsv(header+`${id},Jane,CS,student\n${id},Other,CS,faculty`));
-  assert.throws(()=>parseProfileCsv(header+`${id},"Jane,CS,student`));
+test('rejects invalid roles, duplicate emails and unterminated fields', () => {
+  assert.throws(() => parseProfileCsv(header + `jane@bmsit.in,Jane,CS,admin`));
+  assert.throws(() => parseProfileCsv(header + `jane@bmsit.in,Jane,CS,student\njane@bmsit.in,Other,CS,faculty`));
+  assert.throws(() => parseProfileCsv(header + `jane@bmsit.in,"Jane,CS,student`));
+});
+test('allows up to 2000 rows', () => {
+  const rows = Array.from({ length: 2000 }, (_, i) => `u${i}@bmsit.in,User ${i},CS,student`).join('\n');
+  assert.equal(parseProfileCsv(header + rows).length, 2000);
+  assert.throws(() => parseProfileCsv(header + rows + '\nu2000@bmsit.in,User,CS,student'));
 });
