@@ -1,43 +1,43 @@
-# CampusPulse
+# CampusPulse by Sygnetta
 
-CampusPulse is a campus coordination application by Sygnetta. It helps students find out whether faculty are accepting meetings and send requests through a dedicated campus channel.
+The public introduction is [sygnetta.vercel.app](https://sygnetta.vercel.app/). Sign-in and the campus workspace are at [sygnetta.vercel.app/software/](https://sygnetta.vercel.app/software/). Faculty availability is shown only for the signed-in institution. It uses Supabase Auth, institution-scoped data and private audio storage. Hardware integration is deferred. The old fictional directory and desk-device screen are kept in `demo/` and are not published.
 
-## What is implemented
+Install CampusPulse from [the phone installation page](https://sygnetta.vercel.app/software/install/). On Android, open it in Chrome and choose Install app. On iPhone, open it in Safari and use Share → Add to Home Screen. Accounts and campus data require connectivity; offline launches show a generic reconnect screen. Microphone access is requested only when recording a voice note.
 
-- Faculty availability with expiry and optional scheduled changes.
-- A searchable faculty directory and recurring office hours.
-- Student meeting requests, faculty responses, and in-app updates.
-- Institution-scoped profiles, basic administration, and CSV profile import for existing confirmed accounts.
-- A Supabase-backed development setup with row-level security and access checks.
+Run `pnpm build` for a release. This exports the site and generates the security headers and public-only offline cache version in `out/`; deploying an export without the postbuild step omits required release configuration. Use `pnpm preview` to serve that configuration locally. See the [phone-app security verification](../docs/phone-app-security-verification-2026-11-04.md) for test results and remaining device/provider acceptance work.
 
-The software application is at `/software/`. The `/` route is an earlier hardware-oriented demonstration. `/software/preview/` uses fictional data and does not save changes.
+Students can request meetings with text or voice notes and ordinary-English timing such as “tomorrow at 10 pm”. Faculty can respond with text/audio and propose another time. The app previews the interpreted date, time and time zone. Requests expire at the effective meeting time; their records, updates and audio remain accessible for 45 days afterward, then scheduled maintenance deletes them.
 
-The project is under development. A controlled college pilot, actual signup email delivery, retention policies, and production operations still need to be verified. The team has discussed AI-assisted meeting-request drafting as a possible experiment; it is not implemented.
+Use Node.js 22.18+ and pnpm. Install dependencies, copy .env.example to the ignored .env.local with only the public Supabase URL/browser key, and run pnpm dev. Open /software/. Never put a service key in browser configuration. The default test command is local semantic tests; opted-in live scripts use fictional credentials from ignored .pilot-test/ and create tracked disposable data.
 
-## Run locally
+See [software setup](supabase/README.md), [current implementation status](../docs/development-status.md) and [voice/timing/retention evidence](../docs/voice-timing-retention-verification-2026-11-03.md). Technical checks pass; college authorization, backup/restore and remaining operational/device acceptance gates are tracked separately.
 
-Requirements: Node.js 20.9 or later and pnpm. The tests require Node.js 22.18 or later, or Node.js 20.19 or later with `--experimental-strip-types`.
+---
 
-```bash
+# Historical browser demo
+
+Next.js / TypeScript faculty availability demo. All records are fictional and all device interactions are simulated in the current browser. Reloading resets the data. No backend or hardware connection is required.
+
+Install Node.js 22.18+ and pnpm, then:
+
+```text
 pnpm install
-cp .env.example .env.local
 pnpm dev
 ```
 
-On Windows PowerShell, use `Copy-Item .env.example .env.local`. Add your own Supabase project URL and **publishable** key to `.env.local`, then open `http://localhost:3000/software/`. Never add a Supabase secret or service-role key to a `NEXT_PUBLIC_` variable or commit credentials. To run the software MVP against your own project, review and apply the migrations in `supabase/migrations` in order. The campus-domain signup hook also requires separate activation in Supabase Auth; do not expose registration until that restriction and email confirmation are verified.
+Open http://127.0.0.1:3000. Use the desk panel or the arrow on a faculty card to try Available, Busy and Away. Search by name, department or room; combine department/status filters. Reset demo restores the original examples.
 
-To view the fictional faculty preview without Supabase, visit `http://localhost:3000/software/preview/`.
-
-```bash
+```text
 pnpm typecheck
 pnpm test
 pnpm build
+pnpm preview
 ```
 
-## Data and access
+Build output is `out/`. Preview serves the built output at http://127.0.0.1:3000; stop the development server before using the same port for preview. Browser interactions are client-side and require JavaScript. Fonts have system fallbacks.
 
-Faculty availability reflects an explicit declaration, not location or physical presence. Expired statuses display as unknown. The development system uses institution-scoped policies and database functions, but a college pilot still requires institutional approval and further operational, privacy, backup, and security review. In-app notifications are available while the app is open; email and push notifications are not implemented.
+Faculty declarations and connectivity timestamps are separate. Simulated heartbeats every 15 seconds never refresh the declaration timestamp. Offline means no heartbeat for two minutes; stale means no declaration for 30 minutes. The demo includes both examples. Available/Busy/Away filters and the Available overview count include only current declarations. Needs update includes stale/offline records.
 
-## Status
+Available lights green; Busy lights yellow; Away turns both off. Simulated disconnection immediately marks the selected device offline and disables submission. Reconnecting preserves the declaration timestamp. The demo does not simulate offline firmware input or queued updates.
 
-Founder-reported student and faculty conversations informed the problem. The core request workflow has been tested with fictional accounts. No pilot, institutional purchase, or measured improvement is claimed.
+Supabase, actual device ingestion and firmware await hardware context. No presence detection or attendance monitoring is implemented. Status never guarantees physical presence.

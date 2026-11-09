@@ -1,0 +1,80 @@
+-- Events are browsable by everyone on campus. Phone and Updates alerts stay
+-- limited to people who follow that club.
+
+drop policy events_read on public.club_events;
+create policy events_read on public.club_events for select to authenticated using (
+  institution_id = public.current_institution()
+  and starts_at > now() - interval '7 days'
+  and exists (
+    select 1 from public.profiles p
+    where p.id = (select auth.uid()) and p.active and p.institution_id = club_events.institution_id
+  )
+);
+
+create or replace function public.publish_club_event(
+  p_title text,
+  p_body text,
+  p_place text,
+  p_starts timestamptz,
+  p_ends timestamptz,
+  p_audience text,
+  p_audience_value text,
+  p_club_name text default null
+) returns uuid
+language plpgsql security definer set search_path = '' as $$
+declare
+  institution uuid;
+  result uuid;
+  club uuid;
+  clean_title text := btrim(coalesce(p_title, ''));
+  clean_body text := btrim(coalesce(p_body, ''));
+  clean_place text := btrim(coalesce(p_place, ''));
+  clean_club text := btrim(coalesce(p_club_name, ''));
+  audience_value text;
+begin
+  select institution_id into institution from public.profiles where id = (select auth.uid()) and active;
+  if institution is null then raise exception 'Active account required'; end if;
+  if not public.is_institution_admin() and not exists (
+    select 1 from public.club_posters where institution_id = institution and profile_id = (select auth.uid())
+  ) then raise exception 'You are not authorized to post club events'; end if;
+  if char_length(clean_title) not between 1 and 120 or char_length(clean_body) not between 1 and 2000 or char_length(clean_place) > 160 then
+    raise exception 'Add an event title and details';
+  end if;
+  if p_starts is null or p_starts < now() - interval '1 hour' or p_starts > now() + interval '180 days' then
+    raise exception 'Choose an event time';
+  end if;
+  if p_ends is not null and p_ends <= p_starts then raise exception 'The end time must be after the start time'; end if;
+  if (select count(*) from public.club_events where author_id = (select auth.uid()) and created_at > now() - interval '1 hour') >= 20 then
+    raise exception 'Too many events; try again later';
+  end if;
+  audience_value := campuspulse_private.require_audience(p_audience, p_audience_value);
+  if char_length(clean_club) = 0 then raise exception 'Choose a club for this event'; end if;
+  if char_length(clean_club) > 80 then raise exception 'Club name is too long'; end if;
+
+  insert into public.clubs(institution_id, name) values (institution, clean_club)
+  on conflict (institution_id, lower(name)) do update set name = public.clubs.name
+  returning id into club;
+  insert into public.club_follows(club_id, profile_id) values (club, (select auth.uid()))
+  on conflict (club_id, profile_id) do nothing;
+
+  insert into public.club_events(institution_id, author_id, title, body, place, starts_at, ends_at, audience, audience_value, club_id)
+  values (institution, (select auth.uid()), clean_title, clean_body, clean_place, p_starts, p_ends, p_audience, audience_value, club)
+  returning id into result;
+
+  -- Alerts only for followers. Everyone on campus can still browse the event.
+  insert into public.notifications(recipient_id, kind, event_id, message)
+  select f.profile_id, 'event', result, left('Club event: ' || clean_title, 180)
+  from public.club_follows f
+  join public.profiles p on p.id = f.profile_id
+  where f.club_id = club
+    and p.institution_id = institution
+    and p.active
+    and p.id is distinct from (select auth.uid());
+
+  return result;
+end $$;
+
+revoke all on function public.publish_club_event(text, text, text, timestamptz, timestamptz, text, text, text)
+  from public, anon;
+grant execute on function public.publish_club_event(text, text, text, timestamptz, timestamptz, text, text, text)
+  to authenticated;

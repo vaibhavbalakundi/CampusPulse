@@ -1,0 +1,34 @@
+// Deliberately synthetic records. Backdating is performed separately through trusted SQL.
+const fs=require('node:fs'), assert=require('node:assert/strict');const {parseEnv}=require('node:util');const {createClient}=require('@supabase/supabase-js');const {chromium}=require(process.env.CAMPUSPULSE_PLAYWRIGHT_MODULE||'playwright');
+const env=parseEnv(fs.readFileSync('.env.local','utf8'));assert.equal(env.NEXT_PUBLIC_SUPABASE_URL,'https://zqljaarwncamxqxawcxd.supabase.co');
+const fixture=JSON.parse(fs.readFileSync('.pilot-test/accounts.json','utf8')).accounts;const accounts={};const report={checks:[]};let browser;const contexts=[];
+function check(name,ok){report.checks.push({name,passed:!!ok});console.log((ok?'PASS: ':'FAIL: ')+name);assert.ok(ok,name);}
+(async()=>{try{
+  for(const label of ['A_student','A_faculty']){const f=fixture.find(x=>x.label===label),client=createClient(env.NEXT_PUBLIC_SUPABASE_URL,env.NEXT_PUBLIC_SUPABASE_ANON_KEY,{auth:{persistSession:false,autoRefreshToken:false}});const r=await client.auth.signInWithPassword({email:f.email,password:f.password});assert.ok(!r.error);accounts[label]={client,fixture:f,id:r.data.user.id};}
+  const s=accounts.A_student,f=accounts.A_faculty;
+  if(process.argv.includes('--after-aging')||process.argv.includes('--after-cleanup')){
+    const a=JSON.parse(fs.readFileSync('.pilot-test/retention-artifacts.json','utf8'));
+    const record=await s.client.from('meeting_requests').select('id').eq('id',a.purgeRequest);check('Past-retention request is inaccessible to participant',!record.error&&record.data.length===0);
+    const note=await s.client.storage.from('voice-notes').download(a.path);check('Past-retention audio is inaccessible to sender',!!note.error);
+    const note2=await f.client.storage.from('voice-notes').download(a.path);check('Past-retention audio is inaccessible to faculty',!!note2.error);
+    const maintenance=await s.client.rpc('meeting_retention_candidates');check('Student cannot call service-only maintenance RPC',!!maintenance.error);
+    const endpoint=await fetch(env.NEXT_PUBLIC_SUPABASE_URL+'/functions/v1/meeting-maintenance',{method:'POST'});check('Maintenance webhook rejects missing credential',endpoint.status===401);
+    const invalid=await fetch(env.NEXT_PUBLIC_SUPABASE_URL+'/functions/v1/meeting-maintenance',{method:'POST',headers:{'x-campus-job-token':'0'.repeat(64)}});check('Maintenance webhook rejects incorrect credential',invalid.status===401);
+    report.passed=true;return;
+  }
+  const marker='Fictional expiry verification '+Date.now();const artifacts={marker,expiryRequest:null,purgeRequest:null,path:null};const save=()=>fs.writeFileSync('.pilot-test/retention-artifacts.json',JSON.stringify(artifacts,null,2));
+  const raw=Buffer.alloc(16044);raw.write('RIFF');raw.writeUInt32LE(raw.length-8,4);raw.write('WAVEfmt ',8);raw.writeUInt32LE(16,16);raw.writeUInt16LE(1,20);raw.writeUInt16LE(1,22);raw.writeUInt32LE(8000,24);raw.writeUInt32LE(16000,28);raw.writeUInt16LE(2,32);raw.writeUInt16LE(16,34);raw.write('data',36);raw.writeUInt32LE(16000,40);
+  artifacts.path=s.id+'/'+crypto.randomUUID()+'.wav';assert.ok(!(await s.client.storage.from('voice-notes').upload(artifacts.path,raw,{contentType:'audio/wav'})).error);save();
+  const base={p_faculty:f.id,p_reason:marker,p_voice_path:artifacts.path,p_submission_id:crypto.randomUUID(),p_meeting_at:new Date(Date.now()+86400000).toISOString()};
+  const p=await s.client.rpc('create_timed_meeting_request',base);check('Retention test voice request created',!p.error&&!!p.data);artifacts.purgeRequest=p.data;save();
+  const expiryAt=new Date(Date.now()+35000).toISOString();const e=await s.client.rpc('create_timed_meeting_request',{...base,p_reason:marker+' natural expiry',p_voice_path:null,p_submission_id:crypto.randomUUID(),p_meeting_at:expiryAt});check('Near-term expiry test request created',!e.error&&!!e.data);artifacts.expiryRequest=e.data;save();
+  const stored=await s.client.from('meeting_requests').select('meeting_at,purge_after').eq('id',p.data).single();check('Retention boundary is exactly 45 days after meeting time',!stored.error&&Date.parse(stored.data.purge_after)-Date.parse(stored.data.meeting_at)===45*86400000);
+  const past=await s.client.rpc('create_timed_meeting_request',{...base,p_voice_path:null,p_submission_id:crypto.randomUUID(),p_meeting_at:new Date(Date.now()-1000).toISOString()});check('Backend rejects a past meeting time',!!past.error);
+  const legacy=await s.client.rpc('create_meeting_request',{p_faculty:f.id,p_reason:'Old endpoint bypass test',p_preferred_time:'sometime'});check('Legacy creation endpoint cannot bypass expiry',!!legacy.error);
+  browser=await chromium.launch({channel:'msedge',headless:true});const c=await browser.newContext({viewport:{width:390,height:844}});contexts.push(c);const page=await c.newPage();await page.goto((process.env.CAMPUSPULSE_TEST_ORIGIN||'http://127.0.0.1:3000')+'/software/');await page.getByLabel('Campus email',{exact:true}).fill(f.fixture.email);await page.getByLabel('Password',{exact:true}).fill(f.fixture.password);await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Sign out',exact:true}).waitFor();await page.getByRole('button',{name:/^Requests/}).click();const card=page.locator('article').filter({hasText:marker+' natural expiry'});await card.getByRole('button',{name:'Accept',exact:true}).waitFor();check('Future request is actionable before its deadline',true);
+  await card.getByText('expired',{exact:true}).waitFor({timeout:45000});check('Open browser marks request expired when its real clock deadline passes',true);check('Expired browser request has no faculty response controls',await card.getByRole('button',{name:'Accept',exact:true}).count()===0);
+  const respond=await f.client.rpc('respond_to_timed_request',{p_request:e.data,p_status:'accepted',p_note:null,p_voice_path:null,p_alternative_at:null});check('Backend refuses a response after deadline',!!respond.error);
+  const cancel=await s.client.rpc('cancel_meeting_request',{p_request:e.data});check('Backend refuses cancellation after deadline',!!cancel.error);
+  const still=await s.client.from('meeting_requests').select('id').eq('id',e.data);check('Expired record stays accessible during retention window',!still.error&&still.data.length===1);report.passed=true;
+}catch(e){report.passed=false;report.error_name=e.name;report.failed_check=e.name==='AssertionError'?e.message:undefined;process.exitCode=1;}
+finally{for(const c of contexts)await c.close();await browser?.close();for(const a of Object.values(accounts))await a.client.auth.signOut({scope:'local'}).catch(()=>{});report.finished_at=new Date().toISOString();fs.writeFileSync('.pilot-test/retention-'+(process.argv.includes('--after-aging')?'aging':process.argv.includes('--after-cleanup')?'cleanup':'expiry')+'-results.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report));}})();
