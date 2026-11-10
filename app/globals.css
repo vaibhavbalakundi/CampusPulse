@@ -72,12 +72,12 @@ main.public-site{max-width:none;margin:0;padding:0;background:#f3f1ec;color:#161
 .chapter-minutes p{margin:0 0 10px;font:700 11px/1 var(--font);letter-spacing:1.4px;text-transform:uppercase;color:#6f675e}
 .chapter-minutes strong{display:block;margin:0 0 16px;font:400 clamp(26px,3vw,36px)/1.25 var(--font-serif),Georgia,serif;color:#161513}
 body:has(main.public-site){background:#11100e}
-.cursor-mark{position:fixed;top:0;left:0;z-index:10000;width:8px;height:8px;border-radius:50%;background:#fff;pointer-events:none;opacity:0;mix-blend-mode:difference;transition:opacity .16s ease,width .16s ease,height .16s ease;will-change:transform}
-.cursor-mark[data-on=true]{opacity:1}
-.cursor-mark[data-hover=true]{width:18px;height:18px;background:transparent;border:1.5px solid #fff}
-html.has-cursor-mark,html.has-cursor-mark *{cursor:none}
-html.has-cursor-mark input,html.has-cursor-mark textarea,html.has-cursor-mark select{cursor:text}
-html.has-cursor-mark input[type=checkbox],html.has-cursor-mark input[type=radio],html.has-cursor-mark input[type=range],html.has-cursor-mark input[type=file]{cursor:pointer}
+.cursor-mark,.cursor-mark:popover-open{position:fixed;inset:auto;top:0;left:0;margin:0;padding:0;border:0;overflow:visible;width:8px;height:8px;border-radius:50%;background:#fff;pointer-events:none;opacity:0;mix-blend-mode:difference;transition:opacity .16s ease,width .16s ease,height .16s ease;will-change:transform;z-index:2147483647}
+.cursor-mark[data-on=true],.cursor-mark:popover-open[data-on=true]{opacity:1}
+.cursor-mark[data-hover=true],.cursor-mark:popover-open[data-hover=true]{width:18px;height:18px;background:transparent;border:1.5px solid #fff}
+html.has-cursor-mark,html.has-cursor-mark *{cursor:none!important}
+html.has-cursor-mark input,html.has-cursor-mark textarea,html.has-cursor-mark select{cursor:text!important}
+html.has-cursor-mark input[type=checkbox],html.has-cursor-mark input[type=radio],html.has-cursor-mark input[type=range],html.has-cursor-mark input[type=file]{cursor:pointer!important}
 @media(pointer:coarse),(prefers-reduced-motion:reduce){.cursor-mark{display:none}html.has-cursor-mark,html.has-cursor-mark *{cursor:auto}}
 .public-close{background:#11100e;color:#f6f3ee}
 .public-close div{max-width:980px;margin:0 auto;padding:88px 32px}

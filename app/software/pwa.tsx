@@ -37,7 +37,13 @@ export function PhoneAppProvider({ children }: { children: ReactNode }) {
   async function install() { if (!prompt) return; const current = prompt; setPrompt(null); try { await current.prompt(); await current.userChoice; } catch { /* Manual platform instructions remain available. */ } }
   return <InstallContext.Provider value={{ prompt, installed, ios, install }}>{children}
     {offline && <div role="status" className={styles.appNotice}>You’re offline. Reconnect to check availability or send a request.</div>}
-    {!offline && waiting && <div role="status" className={styles.appNotice}><span>An app update is ready. Finish or save your current draft before updating.</span><button type="button" disabled={updating} onClick={() => {reloadForUpdate.current = true; setUpdating(true); waiting.postMessage({ type: "ACTIVATE_UPDATE" });}}>{updating ? "Updating…" : "Update app"}</button></div>}
+    {!offline && waiting && <div role="status" className={styles.appNotice}><span>An app update is ready. Finish or save your current draft before updating.</span><button type="button" disabled={updating} onClick={() => {
+      reloadForUpdate.current = true;
+      setUpdating(true);
+      try { waiting.postMessage({ type: "ACTIVATE_UPDATE" }); } catch { /* Fall through to a forced reload. */ }
+      // If the waiting worker never becomes controller (stale SW after a bad deploy), still recover.
+      window.setTimeout(() => { if (reloadForUpdate.current) window.location.reload(); }, 2500);
+    }}>{updating ? "Updating…" : "Update app"}</button></div>}
   </InstallContext.Provider>;
 }
 

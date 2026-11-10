@@ -114,3 +114,26 @@ export async function signedCampusFileUrl(client: SupabaseClient, path: string) 
 export function isImageMime(mime?: string | null) {
   return !!mime && mime.startsWith("image/");
 }
+
+export function isPdfMime(mime?: string | null) {
+  return mime === "application/pdf";
+}
+
+export function isTextMime(mime?: string | null) {
+  return mime === "text/plain" || mime === "text/csv";
+}
+
+export function isOfficeMime(mime?: string | null) {
+  return !!mime && (
+    mime === "application/msword"
+    || mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    || mime === "application/vnd.ms-excel"
+    || mime === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    || mime === "application/vnd.ms-powerpoint"
+    || mime === "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+  );
+}
+
+export function officeEmbedUrl(fileUrl: string) {
+  return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}`;
+}

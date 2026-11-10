@@ -25,7 +25,13 @@ self.addEventListener("activate", event => {
 });
 
 self.addEventListener("message", event => {
-  if (event.source && new URL(event.source.url).origin === self.location.origin && event.data?.type === "ACTIVATE_UPDATE") self.skipWaiting();
+  if (event.data?.type !== "ACTIVATE_UPDATE") return;
+  // Pages post this from the update banner; accept same-origin clients without blocking on source shape.
+  const sourceUrl = event.source && "url" in event.source ? String(event.source.url || "") : "";
+  if (sourceUrl) {
+    try { if (new URL(sourceUrl).origin !== self.location.origin) return; } catch { return; }
+  }
+  event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener("notificationclick", event => {

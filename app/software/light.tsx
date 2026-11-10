@@ -25,6 +25,7 @@ export function FacultySwitch({
   presets,
   walkInNote = "",
   onWalkInNote,
+  savedWalkInNote = "",
 }: {
   presence: Presence;
   working: boolean;
@@ -33,10 +34,22 @@ export function FacultySwitch({
   presets?: { label: string; disabled?: boolean; onApply: () => void }[];
   walkInNote?: string;
   onWalkInNote?: (note: string) => void;
+  savedWalkInNote?: string;
 }) {
   const label = presence.status ? statusWord[presence.status] : "Status unknown";
   const noteLive = presence.status === "available" || presence.status === "busy";
   const draft = walkInNote;
+  const saved = savedWalkInNote.trim();
+  const pending = draft.trim();
+  const dirty = pending !== saved;
+  const saveNote = () => {
+    if (!noteLive || !presence.status) return;
+    onSet(presence.status, pending);
+  };
+  const clearNote = () => {
+    onWalkInNote?.("");
+    if (noteLive && presence.status) onSet(presence.status, "");
+  };
   return <section className={`${styles.hero} ${styles.statusHero}`} data-tour="home">
     <div className={styles.sectionHead}>
       <div>
@@ -68,7 +81,7 @@ export function FacultySwitch({
       <div className={styles.sectionHead}>
         <div>
           <h3 className={styles.subHead}>Note for students</h3>
-          <p className={styles.muted}>Shown while Available or Busy. Cleared if you go Away.</p>
+          <p className={styles.muted}>Pick a preset or write one, then save. Cleared if you go Away.</p>
         </div>
       </div>
       <div className={styles.chipRow} role="group" aria-label="Note presets">
@@ -76,12 +89,10 @@ export function FacultySwitch({
           <button
             type="button"
             key={chip}
-            className={draft === chip ? styles.chipActive : styles.chip}
+            className={pending === chip ? styles.chipActive : styles.chip}
             disabled={working || !noteLive}
-            onClick={() => {
-              onWalkInNote?.(chip);
-              if (noteLive && presence.status) onSet(presence.status, chip);
-            }}
+            aria-pressed={pending === chip}
+            onClick={() => onWalkInNote?.(chip)}
           >{chip}</button>
         ))}
       </div>
@@ -92,14 +103,29 @@ export function FacultySwitch({
           disabled={working || !noteLive}
           placeholder={noteLive ? "e.g. Knock for signatures · back at 3" : "Set Available or Busy to add a note"}
           onChange={event => onWalkInNote?.(event.target.value)}
-          onBlur={() => { if (noteLive && presence.status) onSet(presence.status, draft.trim()); }}
         />
       </label>
-      {noteLive && draft.trim() && (
-        <p className={`${styles.walkInPreview} ${presence.status === "busy" ? styles.walkInPreviewBusy : ""}`} role="status">{draft.trim()}</p>
+      {noteLive && (
+        saved ? (
+          <p className={`${styles.walkInPreview} ${presence.status === "busy" ? styles.walkInPreviewBusy : ""}`} role="status">
+            Students see: {saved}
+          </p>
+        ) : (
+          <p className={styles.muted} role="status">No note is showing to students yet.</p>
+        )
       )}
-      {noteLive && draft.trim() && (
-        <button type="button" className={styles.link} disabled={working} onClick={() => { onWalkInNote?.(""); if (presence.status) onSet(presence.status, ""); }}>Clear note</button>
+      {noteLive && dirty && (
+        <p className={styles.muted} role="status">Draft ready — save to show it to students.</p>
+      )}
+      {noteLive && (
+        <div className={styles.noteActions}>
+          <button type="button" className={styles.primary} disabled={working || !dirty} onClick={saveNote}>
+            {saved ? "Save note" : "Show note to students"}
+          </button>
+          {(pending || saved) && (
+            <button type="button" className={styles.link} disabled={working} onClick={clearNote}>Clear note</button>
+          )}
+        </div>
       )}
     </div>
     <button type="button" className={styles.link} onClick={onHours}>Availability settings</button>

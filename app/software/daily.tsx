@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { supabase } from "../../lib/supabase-client";
 import {
   discardCampusFile,
   isImageMime,
+  isOfficeMime,
+  isPdfMime,
+  isTextMime,
+  officeEmbedUrl,
   prepareCampusFile,
   signedCampusFileUrl,
   uploadCampusFile,
@@ -15,18 +19,45 @@ import { EMPTY_MEETING_TIME, type MeetingTimeDraft } from "../../lib/natural-mee
 import { formatDayLabel, isSameLocalDay, isToday, matchesQuery, startOfLocalDay } from "../../lib/section-browse";
 import { NaturalTimeInput } from "./natural-time-input";
 import { SectionTools } from "./section-tools";
+import { ChoiceSelect } from "./choice-select";
 import { PersonPicker } from "./person-picker";
 import styles from "./software.module.css";
 
 type Person = { id: string; name: string; role: string; department: string; active: boolean; email?: string };
 type Deadline = { id: string; title: string; due_at: string; done: boolean };
-type NoticeRow = { id: string; title: string; body: string; audience: string; audience_value: string; due_at: string | null; expires_at: string; created_at: string; attachment_path?: string | null; attachment_name?: string | null; attachment_mime?: string | null };
+type NoticeAttachment = { id?: string; path: string; name: string; mime?: string | null; sort_order?: number };
+type NoticeRow = {
+  id: string;
+  title: string;
+  body: string;
+  audience: string;
+  audience_value: string;
+  due_at: string | null;
+  expires_at: string;
+  created_at: string;
+  attachment_path?: string | null;
+  attachment_name?: string | null;
+  attachment_mime?: string | null;
+  notice_attachments?: NoticeAttachment[] | null;
+};
 type EventRow = { id: string; title: string; body: string; place: string; starts_at: string; ends_at: string | null; audience: string; audience_value: string; author_id: string; club_id: string | null; attachment_path?: string | null; attachment_name?: string | null; attachment_mime?: string | null };
 type ClubRow = { id: string; name: string };
 type Meeting = { id: string; student_id: string; faculty_id: string; meeting_at: string | null; status: string; reason: string };
 
 const stamp = (value: string) => new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-const audienceLabel = (audience: string, value: string) => audience === "institution" ? "Whole college" : audience === "department" ? value : value === "student" ? "Students" : value === "faculty" ? "Faculty" : "Administrators";
+const audienceDepartments = (value: string) => value.split("|").map(part => part.trim()).filter(Boolean);
+const audienceIncludesDepartment = (value: string, department: string) => audienceDepartments(value).includes(department);
+const audienceLabel = (audience: string, value: string) => {
+  if (audience === "institution") return "Whole college";
+  if (audience === "department") {
+    const departments = audienceDepartments(value);
+    if (!departments.length) return "Departments";
+    if (departments.length === 1) return departments[0];
+    if (departments.length <= 3) return departments.join(" · ");
+    return `${departments.length} departments`;
+  }
+  return value === "student" ? "Students" : value === "faculty" ? "Faculty" : "Administrators";
+};
 const PREP_ITEMS = ["Bring notes", "Confirm place", "Be on time"] as const;
 const prepStorageKey = (userId: string, requestId: string) => `campuspulse.prep.${userId}.${requestId}`;
 
@@ -122,60 +153,170 @@ function downloadEventIcs(event: EventRow, clubName?: string) {
   URL.revokeObjectURL(url);
 }
 
-function AudienceFields({ audience, value, departments, onAudience, onValue }: {
-  audience: string; value: string; departments: string[]; onAudience: (value: string) => void; onValue: (value: string) => void;
+function AudienceFields({ audience, value, departments, onAudience, onValue, disabled = false }: {
+  audience: string; value: string; departments: string[]; onAudience: (value: string) => void; onValue: (value: string) => void; disabled?: boolean;
 }) {
-  return <div className={styles.hoursFields}>
-    <label>Who should see this<select value={audience} onChange={event => onAudience(event.target.value)}><option value="institution">Whole college</option><option value="department">One department</option><option value="role">One role</option></select></label>
-    {audience === "department" && <label>Department<select value={value} onChange={event => onValue(event.target.value)} required><option value="">Choose a department</option>{departments.map(item => <option key={item}>{item}</option>)}</select></label>}
-    {audience === "role" && <label>Role<select value={value} onChange={event => onValue(event.target.value)}><option value="student">Students</option><option value="faculty">Faculty</option><option value="admin">Administrators</option></select></label>}
+  const selectedDepartments = audienceDepartments(value);
+  const toggleDepartment = (department: string) => {
+    const next = selectedDepartments.includes(department)
+      ? selectedDepartments.filter(item => item !== department)
+      : [...selectedDepartments, department];
+    onValue(next.join("|"));
+  };
+  return <div className={styles.publishAudience}>
+    <ChoiceSelect
+      label="Who should see this"
+      value={audience}
+      disabled={disabled}
+      onChange={next => onAudience(next)}
+      options={[
+        { value: "institution", label: "Whole college" },
+        { value: "department", label: "Selected departments" },
+        { value: "role", label: "One role" },
+      ]}
+    />
+    {audience === "department" && (
+      <div className={styles.departmentPicker}>
+        <span className={styles.choiceSelectLabel}>Departments</span>
+        <p className={styles.muted}>Select one or more departments that should see this.</p>
+        <div className={styles.chipRow} role="group" aria-label="Departments">
+          {departments.map(item => (
+            <button
+              type="button"
+              key={item}
+              className={selectedDepartments.includes(item) ? styles.chipActive : styles.chip}
+              aria-pressed={selectedDepartments.includes(item)}
+              disabled={disabled}
+              onClick={() => toggleDepartment(item)}
+            >{item}</button>
+          ))}
+        </div>
+        <input type="hidden" value={value} required readOnly />
+        {!selectedDepartments.length && <p className={styles.muted}>Choose at least one department.</p>}
+      </div>
+    )}
+    {audience === "role" && (
+      <ChoiceSelect
+        label="Role"
+        value={value || "student"}
+        disabled={disabled}
+        required
+        onChange={onValue}
+        options={[
+          { value: "student", label: "Students" },
+          { value: "faculty", label: "Faculty" },
+          { value: "admin", label: "Administrators" },
+        ]}
+      />
+    )}
   </div>;
+}
+
+function noticeFiles(row: NoticeRow): NoticeAttachment[] {
+  const nested = (row.notice_attachments || [])
+    .filter(item => item.path)
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+  if (nested.length) return nested;
+  if (row.attachment_path) {
+    return [{
+      path: row.attachment_path,
+      name: row.attachment_name || "Attachment",
+      mime: row.attachment_mime,
+      sort_order: 0,
+    }];
+  }
+  return [];
 }
 
 function AttachmentPick({
   kind,
-  draft,
+  drafts,
   disabled,
   onChange,
   onError,
+  maxFiles = kind === "notice" ? 5 : 1,
 }: {
   kind: CampusFileKind;
-  draft: CampusFileDraft | null;
+  drafts: CampusFileDraft[];
   disabled?: boolean;
-  onChange: (draft: CampusFileDraft | null) => void;
+  onChange: (drafts: CampusFileDraft[]) => void;
   onError: (message: string) => void;
+  maxFiles?: number;
 }) {
-  const label = kind === "event" ? "Poster (optional)" : "Attachment (optional)";
+  const multi = maxFiles > 1;
+  const label = kind === "event" ? "Poster (optional)" : multi ? "Attachments (optional)" : "Attachment (optional)";
   const hint = kind === "event"
     ? "JPG, PNG, WEBP, or GIF. Up to 10 MB."
-    : "PDF, photo, or common office document. Up to 10 MB.";
+    : multi
+      ? `PDF, photo, or common office document. Up to ${maxFiles} files · 10 MB each.`
+      : "PDF, photo, or common office document. Up to 10 MB.";
   const accept = kind === "event"
     ? "image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif"
     : "image/jpeg,image/png,image/webp,image/gif,application/pdf,text/plain,text/csv,.jpg,.jpeg,.png,.webp,.gif,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx";
 
   async function pick(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0] ?? null;
+    const files = [...(event.target.files || [])];
     event.target.value = "";
-    if (!file) { onChange(null); return; }
+    if (!files.length) return;
     try {
-      onChange(await prepareCampusFile(file, kind));
-      onError("");
+      const room = Math.max(0, maxFiles - drafts.length);
+      if (!room) {
+        onError(multi ? `You can attach up to ${maxFiles} files.` : "Remove the current file before adding another.");
+        return;
+      }
+      const chosen = files.slice(0, room);
+      const prepared: CampusFileDraft[] = [];
+      for (const file of chosen) prepared.push(await prepareCampusFile(file, kind));
+      onChange(multi ? [...drafts, ...prepared].slice(0, maxFiles) : prepared.slice(0, 1));
+      onError(files.length > room ? `Only ${maxFiles} files can be attached.` : "");
     } catch (error) {
-      onChange(null);
       onError(error instanceof Error ? error.message : "Could not use that file.");
     }
   }
 
   return <div className={styles.attachmentPick}>
-    <label>{label}<input type="file" accept={accept} disabled={disabled} onChange={event => void pick(event)} /></label>
-    <p className={styles.muted}>{draft ? draft.name : hint}</p>
-    {draft && <button type="button" className={styles.link} disabled={disabled} onClick={() => onChange(null)}>Remove file</button>}
+    <label>
+      {label}
+      <input
+        type="file"
+        accept={accept}
+        multiple={multi}
+        disabled={disabled || drafts.length >= maxFiles}
+        onChange={event => void pick(event)}
+      />
+    </label>
+    <p className={styles.muted}>{drafts.length ? `${drafts.length} file${drafts.length === 1 ? "" : "s"} selected` : hint}</p>
+    {!!drafts.length && (
+      <ul className={styles.attachmentList}>
+        {drafts.map(draft => (
+          <li key={draft.id}>
+            <span>{draft.name}</span>
+            <button
+              type="button"
+              className={styles.link}
+              disabled={disabled}
+              onClick={() => onChange(drafts.filter(item => item.id !== draft.id))}
+            >Remove</button>
+          </li>
+        ))}
+      </ul>
+    )}
   </div>;
 }
 
 function AttachmentView({ path, name, mime }: { path: string; name?: string | null; mime?: string | null }) {
+  const dialog = useRef<HTMLDialogElement>(null);
   const [url, setUrl] = useState("");
   const [failed, setFailed] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [textBody, setTextBody] = useState<string | null>(null);
+  const [textFailed, setTextFailed] = useState(false);
+  const label = name?.trim() || "Attachment";
+  const image = isImageMime(mime);
+  const pdf = isPdfMime(mime);
+  const text = isTextMime(mime);
+  const office = isOfficeMime(mime);
+
   useEffect(() => {
     if (!supabase) return;
     let alive = true;
@@ -187,11 +328,86 @@ function AttachmentView({ path, name, mime }: { path: string; name?: string | nu
     });
     return () => { alive = false; };
   }, [path]);
+
+  useEffect(() => {
+    const panel = dialog.current;
+    if (!panel) return;
+    if (open) {
+      if (!panel.open) panel.showModal();
+      return;
+    }
+    if (panel.open) panel.close();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !url || !text) {
+      setTextBody(null);
+      setTextFailed(false);
+      return;
+    }
+    let alive = true;
+    setTextBody(null);
+    setTextFailed(false);
+    void fetch(url).then(async response => {
+      if (!response.ok) throw new Error("Could not read file");
+      const body = await response.text();
+      if (alive) setTextBody(body);
+    }).catch(() => {
+      if (alive) setTextFailed(true);
+    });
+    return () => { alive = false; };
+  }, [open, url, text]);
+
   if (failed) return <p className={styles.muted}>Attachment unavailable.</p>;
   if (!url) return <p className={styles.muted}>Opening attachment…</p>;
+
   return <div className={styles.attachmentPreview}>
-    {isImageMime(mime) ? <img src={url} alt={name || "Attachment"} /> : null}
-    <a className={styles.link} href={url} target="_blank" rel="noreferrer">{name || "Open attachment"}</a>
+    {image ? (
+      <button type="button" className={styles.attachmentThumb} onClick={() => setOpen(true)} aria-label={`View ${label}`}>
+        <img src={url} alt="" />
+      </button>
+    ) : null}
+    <div className={styles.attachmentActions}>
+      <button type="button" className={styles.secondary} onClick={() => setOpen(true)}>View in app</button>
+      <a className={styles.link} href={url} target="_blank" rel="noreferrer">Open in new tab</a>
+    </div>
+    <dialog
+      ref={dialog}
+      className={styles.fileDialog}
+      aria-label={label}
+      onClose={() => setOpen(false)}
+      onClick={event => { if (event.target === dialog.current) setOpen(false); }}
+    >
+      <div className={styles.fileDialogBody}>
+        <div className={styles.fileDialogHead}>
+          <button type="button" className={styles.requestBack} onClick={() => setOpen(false)}>Close</button>
+          <a className={styles.link} href={url} target="_blank" rel="noreferrer">Open in new tab</a>
+        </div>
+        <h2 className={styles.fileDialogTitle}>{label}</h2>
+        {image && <img className={styles.fileDialogImage} src={url} alt={label} />}
+        {pdf && <iframe className={styles.fileDialogFrame} title={label} src={url} />}
+        {text && (
+          textFailed
+            ? <p className={styles.muted}>Could not preview this text file. Open it in a new tab instead.</p>
+            : textBody == null
+              ? <p className={styles.muted}>Loading preview…</p>
+              : <pre className={styles.fileDialogText}>{textBody}</pre>
+        )}
+        {office && (
+          <iframe
+            className={styles.fileDialogFrame}
+            title={label}
+            src={officeEmbedUrl(url)}
+          />
+        )}
+        {!image && !pdf && !text && !office && (
+          <p className={styles.muted}>This file type can’t be previewed here. Use Open in new tab.</p>
+        )}
+        {office && (
+          <p className={styles.muted}>If the preview stays blank, open the file in a new tab.</p>
+        )}
+      </div>
+    </dialog>
   </div>;
 }
 
@@ -456,8 +672,9 @@ export function CampusNotices({ isAdmin, userId, people = [], departments, homeD
   const [title, setTitle] = useState(""); const [body, setBody] = useState("");
   const [audience, setAudience] = useState("institution"); const [value, setValue] = useState("student");
   const [due, setDue] = useState(""); const [expires, setExpires] = useState("");
-  const [attachment, setAttachment] = useState<CampusFileDraft | null>(null);
+  const [attachments, setAttachments] = useState<CampusFileDraft[]>([]);
   const [publishing, setPublishing] = useState(false);
+  const [composing, setComposing] = useState(false);
   const [error, setError] = useState(""); const [message, setMessage] = useState(""); const [ready, setReady] = useState(false);
   const [search, setSearch] = useState("");
   const [scope, setScope] = useState<"active" | "action" | "expired">("active");
@@ -466,7 +683,7 @@ export function CampusNotices({ isAdmin, userId, people = [], departments, homeD
   async function load() {
     if (!supabase) return;
     const [noticeResult, posterResult] = await Promise.all([
-      supabase.from("notices").select("id,title,body,audience,audience_value,due_at,expires_at,created_at,attachment_path,attachment_name,attachment_mime").order("created_at", { ascending: false }),
+      supabase.from("notices").select("id,title,body,audience,audience_value,due_at,expires_at,created_at,attachment_path,attachment_name,attachment_mime,notice_attachments(id,path,name,mime,sort_order)").order("created_at", { ascending: false }),
       supabase.from("notice_posters").select("profile_id"),
     ]);
     if (noticeResult.error) setError("Notices could not be loaded.");
@@ -478,30 +695,47 @@ export function CampusNotices({ isAdmin, userId, people = [], departments, homeD
   async function publish(event: FormEvent) {
     event.preventDefault();
     if (!supabase || publishing) return;
+    if (audience === "department" && !audienceDepartments(value).length) {
+      setError("Choose at least one department.");
+      return;
+    }
     setPublishing(true);
     setError("");
     setMessage("");
+    const uploaded: CampusFileDraft[] = [];
     try {
-      let path: string | null = null;
-      if (attachment) path = await uploadCampusFile(supabase, userId, attachment);
+      const paths: string[] = [];
+      const names: string[] = [];
+      for (const draft of attachments) {
+        paths.push(await uploadCampusFile(supabase, userId, draft));
+        names.push(draft.name);
+        uploaded.push(draft);
+      }
       const saved = await supabase.rpc("publish_notice", {
         p_title: title, p_body: body, p_audience: audience, p_audience_value: audience === "institution" ? "" : value,
         p_due: due ? new Date(due).toISOString() : null, p_expires: new Date(expires).toISOString(),
-        p_attachment_path: path, p_attachment_name: attachment?.name ?? null,
+        p_attachment_paths: paths, p_attachment_names: names,
       });
       if (saved.error) {
-        if (attachment) void discardCampusFile(supabase, userId, attachment);
+        for (const draft of uploaded) void discardCampusFile(supabase, userId, draft);
         setError(saved.error.message);
         return;
       }
-      setTitle(""); setBody(""); setDue(""); setExpires(""); setAttachment(null);
+      setTitle(""); setBody(""); setDue(""); setExpires(""); setAttachments([]);
+      setComposing(false);
       setMessage("Notice published. Matching people are notified in Updates.");
       await load();
     } catch (publishError) {
+      for (const draft of uploaded) void discardCampusFile(supabase, userId, draft);
       setError(publishError instanceof Error ? publishError.message : "Could not publish this notice.");
     } finally {
       setPublishing(false);
     }
+  }
+  function closeComposer() {
+    if (publishing) return;
+    setComposing(false);
+    setError("");
   }
   const now = Date.now();
   const visible = rows.filter(row => {
@@ -510,7 +744,7 @@ export function CampusNotices({ isAdmin, userId, people = [], departments, homeD
     if (scope === "action" && (expired || !row.due_at)) return false;
     if (scope === "expired" && !expired) return false;
     if (board === "department" && homeDepartment) {
-      const forDept = row.audience === "department" && row.audience_value === homeDepartment;
+      const forDept = row.audience === "department" && audienceIncludesDepartment(row.audience_value, homeDepartment);
       const campusWide = row.audience === "institution";
       if (!forDept && !campusWide) return false;
       // Prefer dept board: when filtering department, still show campus-wide but rank later via sort
@@ -518,14 +752,62 @@ export function CampusNotices({ isAdmin, userId, people = [], departments, homeD
     return matchesQuery(`${row.title} ${row.body} ${audienceLabel(row.audience, row.audience_value)}`, search);
   }).sort((a, b) => {
     if (board !== "department" || !homeDepartment) return Date.parse(b.created_at) - Date.parse(a.created_at);
-    const score = (row: NoticeRow) => row.audience === "department" && row.audience_value === homeDepartment ? 1 : 0;
+    const score = (row: NoticeRow) => row.audience === "department" && audienceIncludesDepartment(row.audience_value, homeDepartment) ? 1 : 0;
     return score(b) - score(a) || Date.parse(b.created_at) - Date.parse(a.created_at);
   });
-  return <><div className={styles.pageHead}><div><h1>{canPublish ? "Publish a notice." : "Notices."}</h1><p>{canPublish ? "For the college, a department, or a role. It leaves when it expires." : homeDepartment ? `Your ${homeDepartment} board first, then campus-wide.` : "Notes from your college."}</p></div></div>
-    {!!homeDepartment && <div className={styles.filters} role="group" aria-label="Notice board">
-      <button type="button" aria-pressed={board === "department"} onClick={() => setBoard("department")}>{homeDepartment}</button>
-      <button type="button" aria-pressed={board === "all"} onClick={() => setBoard("all")}>All campus</button>
-    </div>}
+  const boardLine = homeDepartment
+    ? `Your ${homeDepartment} board first, then campus-wide.`
+    : "Notes from your college.";
+  return <><div className={styles.pageHead}>
+      <div>
+        <h1>Notices.</h1>
+        <p>{boardLine}</p>
+      </div>
+    </div>
+    {(!!homeDepartment || canPublish) && (
+      <div className={styles.boardBar}>
+        {!!homeDepartment ? (
+          <div className={styles.filters} role="group" aria-label="Notice board">
+            <button type="button" aria-pressed={board === "department"} onClick={() => setBoard("department")}>{homeDepartment}</button>
+            <button type="button" aria-pressed={board === "all"} onClick={() => setBoard("all")}>All campus</button>
+          </div>
+        ) : <div />}
+        {canPublish && (
+          <button
+            type="button"
+            className={composing ? styles.secondary : styles.primary}
+            disabled={publishing}
+            onClick={() => {
+              if (composing) closeComposer();
+              else { setComposing(true); setMessage(""); setError(""); }
+            }}
+          >{composing ? "Close" : "Publish a notice"}</button>
+        )}
+      </div>
+    )}
+    {canPublish && composing && <form className={`${styles.card} ${styles.publishForm}`} onSubmit={event => void publish(event)}>
+      <h2>Publish a notice</h2>
+      <p className={styles.muted}>For the college, selected departments, or a role. It leaves when it expires.</p>
+      <label>Title<input required maxLength={120} value={title} disabled={publishing} onChange={event => setTitle(event.target.value)} /></label>
+      <label>Notice<textarea required maxLength={2000} value={body} disabled={publishing} onChange={event => setBody(event.target.value)} /></label>
+      <AudienceFields audience={audience} value={value} departments={departments} disabled={publishing} onAudience={next => { setAudience(next); setValue(next === "role" ? "student" : ""); }} onValue={setValue} />
+      <div className={styles.publishPair}>
+        <label>Due date, if this notice has one<input type="datetime-local" value={due} disabled={publishing} onChange={event => setDue(event.target.value)} /></label>
+        <label>Expires<input type="datetime-local" required value={expires} disabled={publishing} onChange={event => setExpires(event.target.value)} /></label>
+      </div>
+      <AttachmentPick kind="notice" drafts={attachments} disabled={publishing} onChange={setAttachments} onError={setError} />
+      <p className={styles.muted}>Only the chosen people see it.</p>
+      <div className={styles.publishActions}>
+        <button className={styles.primary} type="submit" disabled={publishing}>{publishing ? "Publishing…" : "Publish notice"}</button>
+        <button type="button" className={styles.link} disabled={publishing} onClick={closeComposer}>Cancel</button>
+      </div>
+    </form>}
+    <SectionTools search={search} onSearch={setSearch} searchPlaceholder="Search notices" chips={[{ id: "active", label: "Active" }, { id: "action", label: "Needs action" }, { id: "expired", label: "Expired" }]} chip={scope} onChip={id => setScope(id as "active" | "action" | "expired")} />
+    {ready && visible.length === 0 && <div className={styles.card}><h2>{search.trim() ? "No matching notices" : "No notices right now"}</h2></div>}
+    {visible.map(row => {
+      const files = noticeFiles(row);
+      return <article className={styles.requestCard} key={row.id}><div className={styles.requestTop}><div><h2>{row.title}</h2><span className={styles.muted}>{audienceLabel(row.audience, row.audience_value)} · expires {stamp(row.expires_at)}</span></div></div><p>{row.body}</p>{row.due_at && <p><strong>Due:</strong> {stamp(row.due_at)}</p>}{files.map(file => <AttachmentView key={file.id || file.path} path={file.path} name={file.name} mime={file.mime} />)}</article>;
+    })}
     {isAdmin && <form className={styles.card} onSubmit={event => {
       event.preventDefault();
       if (!poster) { setError("Choose a person to authorize."); return; }
@@ -546,22 +828,6 @@ export function CampusNotices({ isAdmin, userId, people = [], departments, homeD
         </div>;
       })}
     </form>}
-    {canPublish && <form className={styles.card} onSubmit={event => void publish(event)}>
-      <h2>Publish a notice</h2>
-      <label>Title<input required maxLength={120} value={title} disabled={publishing} onChange={event => setTitle(event.target.value)} /></label>
-      <label>Notice<textarea required maxLength={2000} value={body} disabled={publishing} onChange={event => setBody(event.target.value)} /></label>
-      <AudienceFields audience={audience} value={value} departments={departments} onAudience={next => { setAudience(next); setValue(next === "role" ? "student" : ""); }} onValue={setValue} />
-      <div className={styles.hoursFields}>
-        <label>Due date, if this notice has one<input type="datetime-local" value={due} disabled={publishing} onChange={event => setDue(event.target.value)} /></label>
-        <label>Expires<input type="datetime-local" required value={expires} disabled={publishing} onChange={event => setExpires(event.target.value)} /></label>
-      </div>
-      <AttachmentPick kind="notice" draft={attachment} disabled={publishing} onChange={setAttachment} onError={setError} />
-      <p className={styles.muted}>Only the chosen people see it.</p>
-      <button className={styles.primary} type="submit" disabled={publishing}>{publishing ? "Publishing…" : "Publish notice"}</button>
-    </form>}
-    <SectionTools search={search} onSearch={setSearch} searchPlaceholder="Search notices" chips={[{ id: "active", label: "Active" }, { id: "action", label: "Needs action" }, { id: "expired", label: "Expired" }]} chip={scope} onChip={id => setScope(id as "active" | "action" | "expired")} />
-    {ready && visible.length === 0 && <div className={styles.card}><h2>{search.trim() ? "No matching notices" : "No notices right now"}</h2></div>}
-    {visible.map(row => <article className={styles.requestCard} key={row.id}><div className={styles.requestTop}><div><h2>{row.title}</h2><span className={styles.muted}>{audienceLabel(row.audience, row.audience_value)} · expires {stamp(row.expires_at)}</span></div></div><p>{row.body}</p>{row.due_at && <p><strong>Due:</strong> {stamp(row.due_at)}</p>}{row.attachment_path && <AttachmentView path={row.attachment_path} name={row.attachment_name} mime={row.attachment_mime} />}</article>)}
     {error && <p role="alert" className={styles.error}>{error}</p>}{message && <p role="status" className={styles.success}>{message}</p>}</>;
 }
 
@@ -577,8 +843,9 @@ export function ClubEvents({ role = "student", isAdmin, userId, people, departme
   const [audience, setAudience] = useState("institution"); const [value, setValue] = useState("student");
   const [poster, setPoster] = useState("");
   const [posterClub, setPosterClub] = useState("");
-  const [attachment, setAttachment] = useState<CampusFileDraft | null>(null);
+  const [attachments, setAttachments] = useState<CampusFileDraft[]>([]);
   const [publishing, setPublishing] = useState(false);
+  const [composing, setComposing] = useState(false);
   const [error, setError] = useState(""); const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
   const [day, setDay] = useState(() => startOfLocalDay());
@@ -630,30 +897,42 @@ export function ClubEvents({ role = "student", isAdmin, userId, people, departme
   async function publish(event: FormEvent) {
     event.preventDefault();
     if (!supabase || publishing) return;
+    if (audience === "department" && !audienceDepartments(value).length) {
+      setError("Choose at least one department.");
+      return;
+    }
     setPublishing(true);
     setError("");
     setMessage("");
+    const uploaded = attachments[0] ?? null;
     try {
       let path: string | null = null;
-      if (attachment) path = await uploadCampusFile(supabase, userId, attachment);
+      if (uploaded) path = await uploadCampusFile(supabase, userId, uploaded);
       const saved = await supabase.rpc("publish_club_event", {
         p_title: title, p_body: body, p_place: place, p_starts: new Date(starts).toISOString(), p_ends: ends ? new Date(ends).toISOString() : null,
         p_audience: audience, p_audience_value: audience === "institution" ? "" : value, p_club_name: clubName.trim(),
-        p_attachment_path: path, p_attachment_name: attachment?.name ?? null,
+        p_attachment_path: path, p_attachment_name: uploaded?.name ?? null,
       });
       if (saved.error) {
-        if (attachment) void discardCampusFile(supabase, userId, attachment);
+        if (uploaded) void discardCampusFile(supabase, userId, uploaded);
         setError(saved.error.message);
         return;
       }
-      setTitle(""); setBody(""); setPlace(""); setClubName(""); setStarts(""); setEnds(""); setAttachment(null);
+      setTitle(""); setBody(""); setPlace(""); setClubName(""); setStarts(""); setEnds(""); setAttachments([]);
+      setComposing(false);
       setMessage("Event posted. People who follow this club are notified.");
       await load();
     } catch (publishError) {
+      if (uploaded) void discardCampusFile(supabase, userId, uploaded);
       setError(publishError instanceof Error ? publishError.message : "Could not post this event.");
     } finally {
       setPublishing(false);
     }
+  }
+  function closeComposer() {
+    if (publishing) return;
+    setComposing(false);
+    setError("");
   }
   async function toggleFollow(clubId: string) {
     if (!supabase) return;
@@ -679,35 +958,38 @@ export function ClubEvents({ role = "student", isAdmin, userId, people, departme
     })
     .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
   const postableClubs = isAdmin ? clubs : clubs.filter(club => myClubs.includes(club.id));
-  return <><div className={styles.pageHead}><div><h1>{focusedClub ? focusedClub.name : "Events."}</h1><p>{focusedClub ? `${visible.length} ${visible.length === 1 ? "event" : "events"} for this club.` : eventLine}</p></div>{focusedClub && <button type="button" className={styles.secondary} onClick={clearClub}>All events</button>}</div>
-    {isAdmin && <form className={styles.card} onSubmit={event => {
-      event.preventDefault();
-      if (!poster || !posterClub) { setError("Choose a person and a club."); return; }
-      void supabase?.rpc("grant_club_poster", { p_user: poster, p_club: posterClub }).then(result => {
-        if (result.error) setError(result.error.message);
-        else { setMessage("That person can now post events for the selected club."); setError(""); setPoster(""); setPosterClub(""); void load(); }
-      });
-    }}>
-      <h2>Authorize a club poster</h2>
-      <p className={styles.muted}>They may post events only for that club. Search by name or email.</p>
-      <PersonPicker people={people} value={poster} onChange={setPoster} required label="Person" />
-      <label>Club<select required value={posterClub} onChange={event => setPosterClub(event.target.value)}>
-        <option value="">Choose a club</option>
-        {clubs.map(club => <option key={club.id} value={club.id}>{club.name}</option>)}
-      </select></label>
-      {!clubs.length && <p className={styles.muted}>Create a club by posting an event once, then assign posters here.</p>}
-      <button className={styles.secondary} type="submit" disabled={!clubs.length}>Allow club posts</button>
-      {posters.map(item => {
-        const person = people.find(entry => entry.id === item.profile_id);
-        const club = clubs.find(entry => entry.id === item.club_id);
-        return <div className={styles.hourRow} key={`${item.profile_id}-${item.club_id}`}>
-          <span>{person?.name ?? "Campus member"}{person?.email ? ` · ${person.email}` : ""} · {club?.name ?? "Club"}</span>
-          <button type="button" onClick={() => void supabase?.rpc("revoke_club_poster", { p_user: item.profile_id, p_club: item.club_id }).then(() => load())}>Remove</button>
-        </div>;
-      })}
-    </form>}
-    {canPost && <form className={styles.card} onSubmit={event => void publish(event)}>
+  return <><div className={styles.pageHead}>
+      <div>
+        <h1>{focusedClub ? focusedClub.name : "Events."}</h1>
+        <p>{focusedClub ? `${visible.length} ${visible.length === 1 ? "event" : "events"} for this club.` : eventLine}</p>
+      </div>
+      {focusedClub && <button type="button" className={styles.secondary} onClick={clearClub}>All events</button>}
+    </div>
+    {(!focusedClub || canPost) && (
+      <div className={styles.boardBar}>
+        {!focusedClub ? (
+          <div className={styles.filters} role="group" aria-label="Event filter">
+            <button type="button" aria-pressed={scope === "upcoming"} onClick={() => setScope("upcoming")}>Upcoming</button>
+            <button type="button" aria-pressed={scope === "day"} onClick={() => setScope("day")}>This day</button>
+            <button type="button" aria-pressed={scope === "all"} onClick={() => setScope("all")}>All</button>
+          </div>
+        ) : <div />}
+        {canPost && (
+          <button
+            type="button"
+            className={composing ? styles.secondary : styles.primary}
+            disabled={publishing}
+            onClick={() => {
+              if (composing) closeComposer();
+              else { setComposing(true); setMessage(""); setError(""); }
+            }}
+          >{composing ? "Close" : "Post an event"}</button>
+        )}
+      </div>
+    )}
+    {canPost && composing && <form className={`${styles.card} ${styles.publishForm}`} onSubmit={event => void publish(event)}>
       <h2>Post a club event</h2>
+      <p className={styles.muted}>Only the chosen audience can see this event. Followers in that audience get a phone alert.</p>
       {isAdmin ? <label>Club<input required maxLength={80} value={clubName} disabled={publishing} onChange={event => setClubName(event.target.value)} placeholder="Club name" /></label>
         : <label>Club<select required value={clubName} disabled={publishing} onChange={event => setClubName(event.target.value)}>
           <option value="">Choose your club</option>
@@ -716,16 +998,18 @@ export function ClubEvents({ role = "student", isAdmin, userId, people, departme
       <label>Title<input required maxLength={120} value={title} disabled={publishing} onChange={event => setTitle(event.target.value)} /></label>
       <label>Details<textarea required maxLength={2000} value={body} disabled={publishing} onChange={event => setBody(event.target.value)} /></label>
       <label>Place<input maxLength={160} value={place} disabled={publishing} onChange={event => setPlace(event.target.value)} /></label>
-      <AudienceFields audience={audience} value={value} departments={departments} onAudience={next => { setAudience(next); setValue(next === "role" ? "student" : ""); }} onValue={setValue} />
-      <div className={styles.hoursFields}>
+      <AudienceFields audience={audience} value={value} departments={departments} disabled={publishing} onAudience={next => { setAudience(next); setValue(next === "role" ? "student" : ""); }} onValue={setValue} />
+      <div className={styles.publishPair}>
         <label>Starts<input type="datetime-local" required value={starts} disabled={publishing} onChange={event => setStarts(event.target.value)} /></label>
         <label>Ends<input type="datetime-local" value={ends} disabled={publishing} onChange={event => setEnds(event.target.value)} /></label>
       </div>
-      <AttachmentPick kind="event" draft={attachment} disabled={publishing} onChange={setAttachment} onError={setError} />
-      <p className={styles.muted}>Only the chosen audience can see this event. Followers in that audience get a phone alert.</p>
-      <button className={styles.primary} type="submit" disabled={publishing}>{publishing ? "Posting…" : "Post event"}</button>
+      <AttachmentPick kind="event" drafts={attachments} disabled={publishing} onChange={setAttachments} onError={setError} />
+      <div className={styles.publishActions}>
+        <button className={styles.primary} type="submit" disabled={publishing}>{publishing ? "Posting…" : "Post event"}</button>
+        <button type="button" className={styles.link} disabled={publishing} onClick={closeComposer}>Cancel</button>
+      </div>
     </form>}
-    {!focusedClub && <SectionTools search={search} onSearch={setSearch} searchPlaceholder="Search events or clubs" chips={[{ id: "upcoming", label: "Upcoming" }, { id: "day", label: "This day" }, { id: "all", label: "All" }]} chip={scope} onChip={id => setScope(id as "upcoming" | "day" | "all")} day={scope === "day" ? day : undefined} onDayChange={scope === "day" ? setDay : undefined} />}
+    {!focusedClub && <SectionTools search={search} onSearch={setSearch} searchPlaceholder="Search events or clubs" day={scope === "day" ? day : undefined} onDayChange={scope === "day" ? setDay : undefined} />}
     {focusedClub && (
       <div className={styles.eventClubBar}>
         <div className={styles.eventActions}>
@@ -778,5 +1062,31 @@ export function ClubEvents({ role = "student", isAdmin, userId, people, departme
         {row.attachment_path && <AttachmentView path={row.attachment_path} name={row.attachment_name} mime={row.attachment_mime} />}
       </article>;
     })}
+    {isAdmin && <form className={styles.card} onSubmit={event => {
+      event.preventDefault();
+      if (!poster || !posterClub) { setError("Choose a person and a club."); return; }
+      void supabase?.rpc("grant_club_poster", { p_user: poster, p_club: posterClub }).then(result => {
+        if (result.error) setError(result.error.message);
+        else { setMessage("That person can now post events for the selected club."); setError(""); setPoster(""); setPosterClub(""); void load(); }
+      });
+    }}>
+      <h2>Authorize a club poster</h2>
+      <p className={styles.muted}>They may post events only for that club. Search by name or email.</p>
+      <PersonPicker people={people} value={poster} onChange={setPoster} required label="Person" />
+      <label>Club<select required value={posterClub} onChange={event => setPosterClub(event.target.value)}>
+        <option value="">Choose a club</option>
+        {clubs.map(club => <option key={club.id} value={club.id}>{club.name}</option>)}
+      </select></label>
+      {!clubs.length && <p className={styles.muted}>Create a club by posting an event once, then assign posters here.</p>}
+      <button className={styles.secondary} type="submit" disabled={!clubs.length}>Allow club posts</button>
+      {posters.map(item => {
+        const person = people.find(entry => entry.id === item.profile_id);
+        const club = clubs.find(entry => entry.id === item.club_id);
+        return <div className={styles.hourRow} key={`${item.profile_id}-${item.club_id}`}>
+          <span>{person?.name ?? "Campus member"}{person?.email ? ` · ${person.email}` : ""} · {club?.name ?? "Club"}</span>
+          <button type="button" onClick={() => void supabase?.rpc("revoke_club_poster", { p_user: item.profile_id, p_club: item.club_id }).then(() => load())}>Remove</button>
+        </div>;
+      })}
+    </form>}
     {error && <p role="alert" className={styles.error}>{error}</p>}{message && <p role="status" className={styles.success}>{message}</p>}</>;
 }

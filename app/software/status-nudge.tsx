@@ -28,7 +28,7 @@ export function FacultyStatusNudge({
         <div>
           <h2>Update your status?</h2>
           <p>
-            {nudge.studentName} saw you in your cabin and asked for a quick update.
+            {nudge.studentName} checked your cabin while you show Available and asked for a quick update.
             One tap sets your status and clears this ask.
           </p>
         </div>
@@ -78,7 +78,7 @@ export function StudentStatusNudgeButton({
       event.stopPropagation();
       onAsk();
     }}>
-      They&apos;re here · ask to update
+      Cabin empty · ask to update
     </button>
   );
 }

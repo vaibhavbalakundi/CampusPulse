@@ -35,8 +35,14 @@ import {
   type CachedPresence,
 } from "../../lib/campus-prefs";
 import type { WaitingPlace } from "./faculty-directory";
+import {
+  prepareProfilePhoto,
+  publicProfilePhotoUrl,
+  removeProfilePhotoObject,
+  uploadProfilePhoto,
+} from "../../lib/profile-photos";
 
-type Profile = { id: string; name: string; role: "student" | "faculty" | "admin"; department: string; office_location: string | null; expertise: string; portfolio: string; active: boolean; pause_requests?: boolean; quiet_start?: string | null; quiet_end?: string | null; reply_snippets?: string[]; auto_busy_outside_hours?: boolean };
+type Profile = { id: string; name: string; role: "student" | "faculty" | "admin"; department: string; office_location: string | null; expertise: string; portfolio: string; photo_path?: string | null; active: boolean; pause_requests?: boolean; quiet_start?: string | null; quiet_end?: string | null; reply_snippets?: string[]; auto_busy_outside_hours?: boolean };
 type Availability = { faculty_id: string; status: "available" | "busy" | "away"; updated_at: string; expires_at: string; walk_in_note?: string | null };
 type Request = { id: string; student_id: string; faculty_id: string; reason: string; preferred_time: string; requested_for: string | null; meeting_at: string | null; purge_after: string | null; status: string; response_note: string | null; request_voice_path: string | null; response_voice_path: string | null; created_at: string; updated_at?: string };
 type Notice = { id: string; message: string; created_at: string; read_at: string | null; kind?: string | null };
@@ -126,6 +132,7 @@ export default function SoftwareHome() {
   const [expertiseDraft, setExpertiseDraft] = useState("");
   const [portfolioDraft, setPortfolioDraft] = useState("");
   const [officeDraft, setOfficeDraft] = useState("");
+  const [photoDraftPath, setPhotoDraftPath] = useState<string | null>(null);
   const [reason, setReason] = useState(""); const [preferred, setPreferred] = useState<MeetingTimeDraft>(EMPTY_MEETING_TIME);
   const [notes, setNotes] = useState<Record<string, string>>({}); const [now, setNow] = useState(0);
   const [alternativeTimes, setAlternativeTimes] = useState<Record<string, MeetingTimeDraft>>({});
@@ -161,7 +168,7 @@ export default function SoftwareHome() {
       setWaiting(next);
     };
     const results = await Promise.all([
-      supabase.from("profiles").select("id,name,role,department,office_location,expertise,portfolio,active,pause_requests,quiet_start,quiet_end,reply_snippets,auto_busy_outside_hours").abortSignal(controller.signal),
+      supabase.from("profiles").select("id,name,role,department,office_location,expertise,portfolio,photo_path,active,pause_requests,quiet_start,quiet_end,reply_snippets,auto_busy_outside_hours").abortSignal(controller.signal),
       supabase.from("availability").select("faculty_id,status,updated_at,expires_at,walk_in_note").abortSignal(controller.signal),
       supabase.from("meeting_requests").select("id,student_id,faculty_id,reason,preferred_time,status,response_note,request_voice_path,response_voice_path,requested_for,meeting_at,purge_after,created_at,updated_at").order("created_at", { ascending: false }).abortSignal(controller.signal),
       supabase.from("notifications").select("id,message,created_at,read_at,kind").order("created_at", { ascending: false }).abortSignal(controller.signal).limit(100),
@@ -274,11 +281,12 @@ export default function SoftwareHome() {
     setExpertiseDraft(me.expertise || "");
     setPortfolioDraft(me.portfolio || "");
     setOfficeDraft(me.office_location || "");
-  }, [me?.id, me?.role, me?.expertise, me?.portfolio, me?.office_location]);
+    setPhotoDraftPath(me.photo_path || null);
+  }, [me?.id, me?.role, me?.expertise, me?.portfolio, me?.office_location, me?.photo_path]);
   useEffect(() => {
     if (!me || me.role !== "faculty") { setWalkInDraft(""); return; }
     const row = availability.find(item => item.faculty_id === me.id);
-    const live = row && Date.parse(row.expires_at) > Date.now() && row.status === "available";
+    const live = row && Date.parse(row.expires_at) > Date.now() && (row.status === "available" || row.status === "busy");
     setWalkInDraft(live ? (row.walk_in_note || "").trim() : "");
   }, [me?.id, me?.role, availability]);
   useEffect(() => {
@@ -364,7 +372,7 @@ export default function SoftwareHome() {
         setRequests([]); setRequestsLoadError(null); setNotices([]); setScheduled([]); setScheduleReady(false); setScheduleReliable(false);
         setDepartment(""); setStatusFilter("all"); setListMode("recent"); setRecentIds([]); setWaiting({}); setAdminReady(false); setUsage(null); setSearch("");
         setTarget(""); setReason(""); setPreferred(EMPTY_MEETING_TIME); setNotes({});
-        setDuration(480); setExpertiseDraft(""); setPortfolioDraft(""); setOfficeDraft("");
+        setDuration(480); setExpertiseDraft(""); setPortfolioDraft(""); setOfficeDraft(""); setPhotoDraftPath(null);
         setScheduleStart(""); setScheduleEnd(""); setScheduledChoice("available"); setError(""); setMessage(""); setWorking(false); setEmail(""); setPassword("");
         // Keep the open section across reload; only reset when the signed-in person changes.
         if (previousUser && nextUser && previousUser !== nextUser) setTab("");
@@ -840,11 +848,19 @@ export default function SoftwareHome() {
       setOpenStatusNudges(previous => previous.filter(row => row.faculty_id !== me.id));
     });
   };
+  const savedWalkInNote = (() => {
+    if (!me || me.role !== "faculty") return "";
+    const row = availability.find(item => item.faculty_id === me.id);
+    if (!row || Date.parse(row.expires_at) <= Date.now()) return "";
+    if (row.status !== "available" && row.status !== "busy") return "";
+    return (row.walk_in_note || "").trim();
+  })();
   const facultyControls = me.role === "faculty" ? <FacultySwitch
     presence={mine}
     working={working || !!captureId}
     walkInNote={walkInDraft}
     onWalkInNote={setWalkInDraft}
+    savedWalkInNote={savedWalkInNote}
     onSet={setFacultyStatus}
     onHours={() => goToTab("timing")}
     presets={statusPresets}
@@ -913,6 +929,55 @@ export default function SoftwareHome() {
         ).then(ok => { if (ok) { close(); void load(); } });
       }}>
         <p className={styles.muted}>Students search these fields when finding someone to meet.</p>
+        <div className={styles.profilePhotoRow}>
+          {publicProfilePhotoUrl(photoDraftPath) ? (
+            <img className={styles.profilePhotoPreview} src={publicProfilePhotoUrl(photoDraftPath)!} alt="" />
+          ) : (
+            <span className={styles.profilePhotoFallback} aria-hidden="true">{me.name.charAt(0)}</span>
+          )}
+          <div className={styles.profilePhotoActions}>
+            <label className={styles.secondary} style={{ display: "inline-flex", alignItems: "center", cursor: working ? "not-allowed" : "pointer" }}>
+              {photoDraftPath ? "Change photo" : "Add photo"}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                hidden
+                disabled={working}
+                onChange={event => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (!file) return;
+                  void action(async () => {
+                    const draft = await prepareProfilePhoto(file);
+                    const previous = photoDraftPath;
+                    const path = await uploadProfilePhoto(supabase!, me.id, draft);
+                    const result = await supabase!.rpc("set_faculty_photo", { p_path: path });
+                    if (result.error) return result;
+                    setPhotoDraftPath(path);
+                    if (previous && previous !== path) await removeProfilePhotoObject(supabase!, previous);
+                    return { error: null };
+                  }, "Profile photo saved.");
+                }}
+              />
+            </label>
+            {photoDraftPath && (
+              <button
+                type="button"
+                className={styles.link}
+                disabled={working}
+                onClick={() => void action(async () => {
+                  const previous = photoDraftPath;
+                  const result = await supabase!.rpc("set_faculty_photo", { p_path: "" });
+                  if (result.error) return result;
+                  setPhotoDraftPath(null);
+                  if (previous) await removeProfilePhotoObject(supabase!, previous);
+                  return { error: null };
+                }, "Profile photo removed.")}
+              >Remove photo</button>
+            )}
+          </div>
+        </div>
+        <p className={styles.muted}>JPG, PNG, or WEBP · up to 2 MB. Students can tap the photo to expand it.</p>
         <label>Expertise areas<input value={expertiseDraft} maxLength={400} onChange={e => setExpertiseDraft(e.target.value)} placeholder="For example: machine learning, databases, computer networks" /></label>
         <label>Short portfolio<textarea value={portfolioDraft} maxLength={800} onChange={e => setPortfolioDraft(e.target.value)} placeholder="A short note about your work, courses, or research." /></label>
         <label>Cabin / office<input value={officeDraft} maxLength={120} onChange={e => setOfficeDraft(e.target.value)} placeholder="Optional cabin or office" /></label>
@@ -962,7 +1027,7 @@ export default function SoftwareHome() {
       ) : (
         <FacultyDirectory
           role={me.role === "admin" ? "admin" : "student"}
-          people={faculty.map(person => ({ ...person, email: emailById[person.id], pause_requests: person.pause_requests, quiet_start: person.quiet_start, quiet_end: person.quiet_end, auto_busy_outside_hours: person.auto_busy_outside_hours }))}
+          people={faculty.map(person => ({ ...person, email: emailById[person.id], photo_path: person.photo_path, pause_requests: person.pause_requests, quiet_start: person.quiet_start, quiet_end: person.quiet_end, auto_busy_outside_hours: person.auto_busy_outside_hours }))}
           waitingCap={waitingCap ?? 5}
           favoriteIds={favoriteIds}
           onToggleFavorite={me.role === "student" ? id => setFavoriteIds(toggleFavoriteFaculty(me.id, id)) : undefined}

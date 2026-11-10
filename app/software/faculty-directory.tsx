@@ -10,6 +10,7 @@ import { StudentStatusNudgeButton } from "./status-nudge";
 import type { MeetingTimeDraft } from "../../lib/natural-meeting-time";
 import type { VoiceDraft } from "../../lib/voice-notes";
 import { readFacultyReasons } from "../../lib/campus-prefs";
+import { publicProfilePhotoUrl } from "../../lib/profile-photos";
 
 export type WaitingPlace = { waiting: number; myPlace: number | null; cap: number };
 
@@ -29,12 +30,20 @@ type Faculty = {
   office_location: string | null;
   expertise?: string;
   portfolio?: string;
+  photo_path?: string | null;
   email?: string;
   pause_requests?: boolean;
   quiet_start?: string | null;
   quiet_end?: string | null;
   auto_busy_outside_hours?: boolean;
 };
+
+function statusChipClass(status: "available" | "busy" | "away" | null | undefined, statusStale: boolean) {
+  if (status === "available") return styles.cardChipAvailable;
+  if (status === "busy") return styles.cardChipBusy;
+  if (status === "away") return styles.cardChipAway;
+  return statusStale ? styles.cardChipMuted : styles.cardChipMuted;
+}
 
 type Availability = { faculty_id: string; status: "available" | "busy" | "away"; updated_at: string; expires_at: string; walk_in_note?: string | null };
 type Scheduled = { faculty_id: string; status: "available" | "busy" | "away"; starts_at: string; expires_at: string };
@@ -82,8 +91,6 @@ export function FacultyDirectory({
   departmentFilter = "",
   setDepartmentFilter = () => {},
   suggestPool = [],
-  topicSuggest: topicSuggestProp,
-  onTopicSuggest: onTopicSuggestProp,
   askedNudgeFaculty = {},
   blockedNudgeFaculty = {},
   onRequestStatusNudge,
@@ -125,8 +132,6 @@ export function FacultyDirectory({
   departmentFilter?: string;
   setDepartmentFilter?: (value: string) => void;
   suggestPool?: Faculty[];
-  topicSuggest?: string;
-  onTopicSuggest?: (value: string) => void;
   askedNudgeFaculty?: Record<string, true>;
   blockedNudgeFaculty?: Record<string, true>;
   onRequestStatusNudge?: (facultyId: string) => void;
@@ -142,13 +147,11 @@ export function FacultyDirectory({
   const savedScroll = useRef(0);
   const openId = useRef("");
   const [anchorId, setAnchorId] = useState("");
-  const [topicDraft, setTopicDraft] = useState("");
   const [activeTopic, setActiveTopic] = useState("");
   const [stickyReasons, setStickyReasons] = useState<string[]>([]);
+  const [photoPreview, setPhotoPreview] = useState<{ name: string; url: string | null; initial: string } | null>(null);
+  const photoDialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
-  const topicControlled = topicSuggestProp !== undefined;
-  const topicValue = topicControlled ? topicSuggestProp : topicDraft;
-  const setTopicValue = topicControlled ? (onTopicSuggestProp ?? (() => {})) : setTopicDraft;
   const favoriteSet = useMemo(() => new Set(favoriteIds), [favoriteIds]);
   const pinnedPeople = useMemo(
     () => favoriteIds.map(id => people.find(person => person.id === id) || (suggestPool.find(person => person.id === id) as Faculty | undefined)).filter(Boolean) as Faculty[],
@@ -183,6 +186,16 @@ export function FacultyDirectory({
   }, [target, userId, role]);
 
   useEffect(() => {
+    const panel = photoDialog.current;
+    if (!panel) return;
+    if (photoPreview) {
+      if (!panel.open) panel.showModal();
+      return;
+    }
+    if (panel.open) panel.close();
+  }, [photoPreview]);
+
+  useEffect(() => {
     const panel = dialog.current;
     if (!panel || role !== "student") return;
 
@@ -190,9 +203,19 @@ export function FacultyDirectory({
       if (!openId.current) savedScroll.current = window.scrollY;
       openId.current = target;
       setAnchorId(target);
+      const top = savedScroll.current;
+      const pinScroll = () => window.scrollTo(0, top);
       if (!panel.open) panel.showModal();
+      // showModal focuses the dialog node in-document (after the card grid) and can
+      // scroll the page there — pin scroll so the list does not jump to the last card.
+      pinScroll();
+      requestAnimationFrame(() => {
+        pinScroll();
+        requestAnimationFrame(pinScroll);
+      });
       const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       window.setTimeout(() => {
+        pinScroll();
         form.current?.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
       }, reduce ? 0 : 30);
       return;
@@ -230,25 +253,27 @@ export function FacultyDirectory({
       </div>
     </div>
     <div className={styles.directoryTools}>
-      <div>
-        <label className={styles.searchLabel}>Search faculty
-          <input value={search} onChange={event => setSearch(event.target.value)} placeholder={role === "admin" ? "Name, department, expertise, or email" : "Name, department, or topic"} />
-        </label>
-        {role === "student" && <p className={styles.muted}>Search name, department, or topic</p>}
-      </div>
-      {role === "student" && <div>
-        <label className={styles.searchLabel}>Topic for suggestions
-          <input value={topicValue} onChange={event => setTopicValue(event.target.value)} placeholder="e.g. operating systems" />
-        </label>
-        <div className={styles.actions}>
+      <label className={styles.searchLabel}>Search faculty
+        <input
+          value={search}
+          onChange={event => {
+            const next = event.target.value;
+            setSearch(next);
+            if (next.trim().length < 3) setActiveTopic("");
+          }}
+          placeholder={role === "admin" ? "Name, department, expertise, or email" : "Name, department, or topic"}
+        />
+      </label>
+      {role === "student" && (
+        <div className={styles.searchSuggestActions}>
           <button
             type="button"
             className={styles.secondary}
-            disabled={topicValue.trim().length < 3}
-            onClick={() => setActiveTopic(topicValue.trim())}
+            disabled={search.trim().length < 3}
+            onClick={() => setActiveTopic(search.trim())}
           >Suggest 3 for this topic</button>
         </div>
-      </div>}
+      )}
     </div>
     {departments.length > 0 && <div className={styles.chipRow} role="group" aria-label="Filter by department">
       <button type="button" className={!departmentFilter ? styles.chipActive : styles.chip} aria-pressed={!departmentFilter} onClick={() => setDepartmentFilter("")}>All departments</button>
@@ -263,7 +288,7 @@ export function FacultyDirectory({
         ["recent", "Recent"],
         ...(role === "student" ? [["pinned", "Pinned"] as const] : []),
       ] as Array<["all" | "available" | "recent" | "pinned", string]>).map(([id, label]) => (
-        <button type="button" key={id} aria-pressed={listMode === id && !search.trim()} onClick={() => { setListMode(id); setSearch(""); }}>{label}</button>
+        <button type="button" key={id} aria-pressed={listMode === id && !search.trim()} onClick={() => { setListMode(id); setSearch(""); setActiveTopic(""); }}>{label}</button>
       ))}
     </div>
     {statusStale && <p className={styles.muted} role="status">Showing last-known status. Reconnect for live availability.</p>}
@@ -319,9 +344,11 @@ export function FacultyDirectory({
         const personHours = hoursReady ? hours.filter(item => item.faculty_id === person.id) : [];
         const nextSlot = status !== "available" && personHours.length ? nextOfficeSlots(personHours, now, 1)[0] : undefined;
         const pinned = favoriteSet.has(person.id);
+        const photoUrl = publicProfilePhotoUrl(person.photo_path);
         const open = () => { if (role === "student") onChoose(person.id); };
         return <article
           key={person.id}
+          tabIndex={-1}
           ref={node => {
             if (node) cards.current.set(person.id, node);
             else cards.current.delete(person.id);
@@ -329,16 +356,40 @@ export function FacultyDirectory({
           className={`${styles.card} ${styles.facultyPick}${selected ? ` ${styles.facultyPickSelected}` : ""}`}
         >
           <div className={styles.facultyPickTop}>
-            <div className={styles.avatar}>{person.name.charAt(0)}</div>
-            <div className={`${styles.slotRow} ${styles.badgeCluster}`}>
-              <span className={`${styles.badge} ${status === "available" ? styles.good : status ? styles[status] : ""}`}>
+            <button
+              type="button"
+              className={styles.facultyAvatarButton}
+              aria-label={`View photo of ${person.name}`}
+              onClick={() => setPhotoPreview({
+                name: person.name,
+                url: photoUrl,
+                initial: person.name.charAt(0),
+              })}
+            >
+              {photoUrl ? (
+                <img className={styles.facultyAvatarImage} src={photoUrl} alt="" />
+              ) : (
+                <span className={styles.facultyAvatarFallback} aria-hidden="true">{person.name.charAt(0)}</span>
+              )}
+            </button>
+            <h2 className={styles.facultyPickName}>{person.name}</h2>
+            <div className={styles.facultyPickMeta}>
+              <span className={`${styles.cardChip} ${statusChipClass(status, statusStale)}`}>
                 {status ? labels[status] : statusStale ? "Last known" : "Status unknown"}
               </span>
-              {person.pause_requests && <span className={`${styles.badge} ${styles.away}`}>Requests paused</span>}
-              {pinned && <span className={styles.badge}>Pinned</span>}
+              {person.pause_requests && <span className={`${styles.cardChip} ${styles.cardChipAway}`}>Paused</span>}
+              {role === "student" && onToggleFavorite ? (
+                <button
+                  type="button"
+                  className={`${styles.cardChip} ${styles.pinToggle}${pinned ? ` ${styles.pinToggleOn}` : ""}`}
+                  disabled={working}
+                  aria-pressed={pinned}
+                  aria-label={pinned ? `Unpin ${person.name}` : `Pin ${person.name}`}
+                  onClick={() => onToggleFavorite(person.id)}
+                >{pinned ? "Pinned" : "Pin"}</button>
+              ) : null}
             </div>
           </div>
-          <h2>{person.name}</h2>
           <dl className={styles.facultyMeta}>
             <div><dt>Department</dt><dd>{person.department || "Not listed"}</dd></div>
             {role === "admin" && <div><dt>Email</dt><dd>{person.email || "Not listed"}</dd></div>}
@@ -356,16 +407,7 @@ export function FacultyDirectory({
           {lastReply && <p className={styles.muted}>Last reply · {stamp(lastReply)}</p>}
           {role === "student" && (
             <div className={styles.facultyCardActions}>
-              {onToggleFavorite && (
-                <button
-                  type="button"
-                  className={styles.link}
-                  disabled={working}
-                  aria-pressed={pinned}
-                  onClick={() => onToggleFavorite(person.id)}
-                >{pinned ? "Unpin" : "Pin"}</button>
-              )}
-              {status !== "available" && onRequestStatusNudge && (
+              {status === "available" && onRequestStatusNudge && (
                 <StudentStatusNudgeButton
                   canAsk
                   asked={!!askedNudgeFaculty[person.id]}
@@ -389,7 +431,27 @@ export function FacultyDirectory({
         </article>;
       })}
     </div>
-    {!visiblePeople.length && <div className={styles.card}><p>{listMode === "pinned" ? "No pinned faculty yet." : "No one here."}</p><button className={styles.secondary} type="button" onClick={() => { setSearch(""); setListMode("all"); setDepartmentFilter(""); }}>Show all faculty</button></div>}
+    {!visiblePeople.length && <div className={styles.card}><p>{listMode === "pinned" ? "No pinned faculty yet." : "No one here."}</p><button className={styles.secondary} type="button" onClick={() => { setSearch(""); setActiveTopic(""); setListMode("all"); setDepartmentFilter(""); }}>Show all faculty</button></div>}
+
+    <dialog
+      ref={photoDialog}
+      className={styles.photoDialog}
+      aria-label={photoPreview ? `Photo of ${photoPreview.name}` : "Faculty photo"}
+      onClose={() => setPhotoPreview(null)}
+      onClick={event => { if (event.target === photoDialog.current) setPhotoPreview(null); }}
+    >
+      {photoPreview && (
+        <div className={styles.photoDialogBody}>
+          <button type="button" className={styles.requestBack} onClick={() => setPhotoPreview(null)}>Close</button>
+          <h2 className={styles.photoDialogTitle}>{photoPreview.name}</h2>
+          {photoPreview.url ? (
+            <img className={styles.photoDialogImage} src={photoPreview.url} alt={photoPreview.name} />
+          ) : (
+            <div className={styles.photoDialogFallback} aria-hidden="true">{photoPreview.initial}</div>
+          )}
+        </div>
+      )}
+    </dialog>
 
     {role === "student" && <dialog ref={dialog} className={styles.requestDialog} aria-labelledby={titleId}>
       {chosen && <form ref={form} className={styles.requestDialogBody} onSubmit={onSend}>
@@ -423,7 +485,7 @@ export function FacultyDirectory({
             {favoriteSet.has(chosen.id) ? "Unpin from Find faculty" : "Pin for one-tap access"}
           </button>
         )}
-        {chosenPresence?.status !== "available" && onRequestStatusNudge && (
+        {chosenPresence?.status === "available" && onRequestStatusNudge && (
           <div className={styles.statusNudgeActions}>
             <StudentStatusNudgeButton
               canAsk
