@@ -8,7 +8,6 @@ import {
   isOfficeMime,
   isPdfMime,
   isTextMime,
-  officeEmbedUrl,
   prepareCampusFile,
   signedCampusFileUrl,
   uploadCampusFile,
@@ -311,11 +310,14 @@ function AttachmentView({ path, name, mime }: { path: string; name?: string | nu
   const [open, setOpen] = useState(false);
   const [textBody, setTextBody] = useState<string | null>(null);
   const [textFailed, setTextFailed] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
   const label = name?.trim() || "Attachment";
   const image = isImageMime(mime);
   const pdf = isPdfMime(mime);
   const text = isTextMime(mime);
   const office = isOfficeMime(mime);
+  const canPreview = image || pdf || text;
 
   useEffect(() => {
     if (!supabase) return;
@@ -358,8 +360,45 @@ function AttachmentView({ path, name, mime }: { path: string; name?: string | nu
     return () => { alive = false; };
   }, [open, url, text]);
 
+  async function downloadFile() {
+    if (!url || downloading) return;
+    setDownloading(true);
+    setDownloadError("");
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("Could not download this file.");
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = label;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      setDownloadError(error instanceof Error ? error.message : "Could not download this file.");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   if (failed) return <p className={styles.muted}>Attachment unavailable.</p>;
   if (!url) return <p className={styles.muted}>Opening attachment…</p>;
+
+  if (office || !canPreview) {
+    return <div className={styles.attachmentPreview}>
+      <p className={styles.attachmentFileName}>{label}</p>
+      <p className={styles.muted}>Download the file, then open it on your device.</p>
+      <div className={styles.attachmentActions}>
+        <button type="button" className={styles.secondary} disabled={downloading} onClick={() => void downloadFile()}>
+          {downloading ? "Downloading…" : "Download"}
+        </button>
+        <a className={styles.link} href={url} target="_blank" rel="noreferrer">Open in new tab</a>
+      </div>
+      {downloadError && <p role="alert" className={styles.error}>{downloadError}</p>}
+    </div>;
+  }
 
   return <div className={styles.attachmentPreview}>
     {image ? (
@@ -369,8 +408,12 @@ function AttachmentView({ path, name, mime }: { path: string; name?: string | nu
     ) : null}
     <div className={styles.attachmentActions}>
       <button type="button" className={styles.secondary} onClick={() => setOpen(true)}>View in app</button>
+      <button type="button" className={styles.link} disabled={downloading} onClick={() => void downloadFile()}>
+        {downloading ? "Downloading…" : "Download"}
+      </button>
       <a className={styles.link} href={url} target="_blank" rel="noreferrer">Open in new tab</a>
     </div>
+    {downloadError && <p role="alert" className={styles.error}>{downloadError}</p>}
     <dialog
       ref={dialog}
       className={styles.fileDialog}
@@ -388,23 +431,10 @@ function AttachmentView({ path, name, mime }: { path: string; name?: string | nu
         {pdf && <iframe className={styles.fileDialogFrame} title={label} src={url} />}
         {text && (
           textFailed
-            ? <p className={styles.muted}>Could not preview this text file. Open it in a new tab instead.</p>
+            ? <p className={styles.muted}>Could not preview this text file. Download it instead.</p>
             : textBody == null
               ? <p className={styles.muted}>Loading preview…</p>
               : <pre className={styles.fileDialogText}>{textBody}</pre>
-        )}
-        {office && (
-          <iframe
-            className={styles.fileDialogFrame}
-            title={label}
-            src={officeEmbedUrl(url)}
-          />
-        )}
-        {!image && !pdf && !text && !office && (
-          <p className={styles.muted}>This file type can’t be previewed here. Use Open in new tab.</p>
-        )}
-        {office && (
-          <p className={styles.muted}>If the preview stays blank, open the file in a new tab.</p>
         )}
       </div>
     </dialog>

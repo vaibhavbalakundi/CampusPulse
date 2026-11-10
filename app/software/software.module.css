@@ -291,6 +291,7 @@
 .attachmentList>li:last-child{border-bottom:0;padding-bottom:0}
 .attachmentList .link{padding:0;min-height:0;flex-shrink:0}
 .attachmentPreview{margin:12px 0 0;display:grid;gap:10px;justify-items:start}
+.attachmentFileName{margin:0;font-size:14px;font-weight:650;color:#161513;overflow-wrap:anywhere}
 .attachmentThumb{display:block;padding:0;border:1px solid #e6dfd4;border-radius:12px;background:#fff;overflow:hidden;cursor:zoom-in;max-width:min(100%,420px)}
 .attachmentThumb img{display:block;width:100%;max-height:220px;object-fit:contain;background:#f7f4ee}
 .attachmentActions{display:flex;flex-wrap:wrap;align-items:center;gap:12px}

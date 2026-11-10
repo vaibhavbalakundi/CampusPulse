@@ -134,6 +134,3 @@ export function isOfficeMime(mime?: string | null) {
   );
 }
 
-export function officeEmbedUrl(fileUrl: string) {
-  return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}`;
-}
